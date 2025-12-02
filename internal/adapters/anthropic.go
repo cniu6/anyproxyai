@@ -5,7 +5,7 @@ type AnthropicAdapter struct{}
 func (a *AnthropicAdapter) AdaptRequest(request map[string]interface{}, targetModel string) (map[string]interface{}, error) {
 	adapted := make(map[string]interface{})
 
-	// 设置模型
+	// 设置模型 - 优先使用目标模型
 	if targetModel != "" {
 		adapted["model"] = targetModel
 	} else if model, ok := request["model"].(string); ok {
@@ -116,7 +116,45 @@ func (a *AnthropicAdapter) AdaptStreamChunk(chunk map[string]interface{}) (map[s
 		"model":   "claude-3-sonnet-20240229",
 	}
 
-	if chunkType == "content_block_delta" {
+	// 根据 Claude API 的不同事件类型进行处理
+	switch chunkType {
+	case "message_start":
+		// Claude API 的 message_start 事件
+		message, ok := chunk["message"].(map[string]interface{})
+		if !ok {
+			break
+		}
+		
+		// 提取使用量信息
+		var promptTokens int
+		if usage, ok := message["usage"].(map[string]interface{}); ok {
+			if inputTokens, ok := usage["input_tokens"].(float64); ok {
+				promptTokens = int(inputTokens)
+			}
+		}
+		
+		base["usage"] = map[string]interface{}{
+			"prompt_tokens": promptTokens,
+		}
+		
+		base["choices"] = []map[string]interface{}{
+			{
+				"index":         0,
+				"delta":         map[string]interface{}{},
+				"finish_reason": nil,
+			},
+		}
+	case "content_block_start":
+		// Claude API 的 content_block_start 事件
+		base["choices"] = []map[string]interface{}{
+			{
+				"index":         0,
+				"delta":         map[string]interface{}{},
+				"finish_reason": nil,
+			},
+		}
+	case "content_block_delta":
+		// Claude API 的 content_block_delta 事件
 		var contentText string
 		if delta, ok := chunk["delta"].(map[string]interface{}); ok {
 			contentText = getOrDefault(delta, "text", "").(string)
@@ -126,12 +164,39 @@ func (a *AnthropicAdapter) AdaptStreamChunk(chunk map[string]interface{}) (map[s
 			{
 				"index": 0,
 				"delta": map[string]interface{}{
+					"role":    "assistant",
 					"content": contentText,
 				},
 				"finish_reason": nil,
 			},
 		}
-	} else if chunkType == "message_stop" {
+	case "content_block_stop":
+		// Claude API 的 content_block_stop 事件
+		base["choices"] = []map[string]interface{}{
+			{
+				"index":         0,
+				"delta":         map[string]interface{}{},
+				"finish_reason": nil,
+			},
+		}
+	case "message_delta":
+		// Claude API 的 message_delta 事件，包含停止原因
+		var finishReason string
+		if delta, ok := chunk["delta"].(map[string]interface{}); ok {
+			if stopReason, ok := delta["stop_reason"].(string); ok {
+				finishReason = a.convertStopReason(stopReason)
+			}
+		}
+		
+		base["choices"] = []map[string]interface{}{
+			{
+				"index":         0,
+				"delta":         map[string]interface{}{},
+				"finish_reason": finishReason,
+			},
+		}
+	case "message_stop":
+		// Claude API 的 message_stop 事件
 		base["choices"] = []map[string]interface{}{
 			{
 				"index":         0,
@@ -139,7 +204,8 @@ func (a *AnthropicAdapter) AdaptStreamChunk(chunk map[string]interface{}) (map[s
 				"finish_reason": "stop",
 			},
 		}
-	} else {
+	default:
+		// 未知类型，返回空的 delta
 		base["choices"] = []map[string]interface{}{
 			{
 				"index":         0,

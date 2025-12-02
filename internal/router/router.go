@@ -134,8 +134,73 @@ func SetupAPIRouter(cfg *config.Config, routeService *service.RouteService, prox
 			v1.POST("/audio/transcriptions", proxyHandler)
 			v1.POST("/audio/speech", proxyHandler)
 
-			// Claude 适配接口
-			v1.POST("/anthropic/messages", proxyHandler)
+			// Claude 适配接口 - 直接访问 Anthropic API，不进行响应转换
+			v1.POST("/anthropic/messages", func(c *gin.Context) {
+				// 读取请求体
+				body, err := io.ReadAll(c.Request.Body)
+				if err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error": gin.H{
+							"message": "Failed to read request body",
+							"type":    "invalid_request_error",
+						},
+					})
+					return
+				}
+
+				// 提取请求头
+				headers := make(map[string]string)
+				for key, values := range c.Request.Header {
+					if len(values) > 0 {
+						headers[key] = values[0]
+					}
+				}
+
+				// 检查是否是流式请求
+				var reqData map[string]interface{}
+				if err := json.Unmarshal(body, &reqData); err == nil {
+					if stream, ok := reqData["stream"].(bool); ok && stream {
+						// 流式请求 - 对 Anthropic 路径，不转换响应
+						c.Header("Content-Type", "text/event-stream")
+						c.Header("Cache-Control", "no-cache")
+						c.Header("Connection", "keep-alive")
+						c.Header("X-Accel-Buffering", "no") // 禁用nginx缓冲
+
+						flusher, ok := c.Writer.(http.Flusher)
+						if !ok {
+							log.Errorf("Streaming not supported")
+							c.JSON(http.StatusInternalServerError, gin.H{
+								"error": gin.H{
+									"message": "Streaming not supported",
+									"type":    "internal_error",
+								},
+							})
+							return
+						}
+
+						// 使用特殊的流式处理函数，不对 Anthropic 响应进行转换
+						err := proxyService.ProxyAnthropicStreamRequest(body, headers, c.Writer, flusher)
+						if err != nil {
+							log.Errorf("Anthropic stream proxy error: %v", err)
+						}
+						return
+					}
+				}
+
+				// 非流式请求 - 对 Anthropic 路径，不转换响应
+				respBody, statusCode, err := proxyService.ProxyAnthropicRequest(body, headers)
+				if err != nil {
+					c.JSON(statusCode, gin.H{
+						"error": gin.H{
+							"message": err.Error(),
+							"type":    "proxy_error",
+						},
+					})
+					return
+				}
+
+				c.Data(statusCode, "application/json", respBody)
+			})
 
 			// Gemini 适配接口
 			v1.POST("/gemini/completions", proxyHandler)
@@ -215,7 +280,7 @@ func SetupAPIRouter(cfg *config.Config, routeService *service.RouteService, prox
 	}
 
 	// Gemini 流式生成接口 (支持 streamGenerateContent)
-	v1.POST("/gemini/v1beta/models/:model:streamGenerateContent", proxyHandler)
+	// 这个接口已经通过适配器逻辑处理，不需要单独的路由
 
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {

@@ -27,7 +27,7 @@ func LoadConfig() *Config {
 
 	cfg := &Config{
 		Host:                "localhost",
-		Port:                8000,
+		Port:                8080,
 		DatabasePath:        "routes.db",
 		LocalAPIKey:         "sk-local-default-key",
 		RedirectEnabled:     false,

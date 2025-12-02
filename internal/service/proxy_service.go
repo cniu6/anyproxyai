@@ -47,12 +47,18 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 
 	log.Infof("Received request for model: %s", model)
 
-	// 检查是否是重定向关键字
-	if s.config.RedirectEnabled && model == s.config.RedirectKeyword {
+	// 提取真实的模型名（处理 Gemini streamGenerateContent 的情况）
+	realModel := model
+	if strings.Contains(model, ":streamGenerateContent") {
+		realModel = strings.TrimSuffix(model, ":streamGenerateContent")
+	}
+
+	// 首先检查是否是重定向关键字（支持带后缀的模型名）
+	if s.config.RedirectEnabled && (realModel == s.config.RedirectKeyword || strings.HasPrefix(realModel, s.config.RedirectKeyword+":")) {
 		if s.config.RedirectTargetModel == "" {
 			return nil, http.StatusNotFound, fmt.Errorf("redirect target model not configured")
 		}
-		log.Infof("Redirecting proxy_auto to model: %s", s.config.RedirectTargetModel)
+		log.Infof("Redirecting %s to model: %s", realModel, s.config.RedirectTargetModel)
 		model = s.config.RedirectTargetModel
 		reqData["model"] = model
 
@@ -74,9 +80,9 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 	// 清理路由 API URL（移除末尾斜杠）
 	cleanAPIUrl := strings.TrimSuffix(route.APIUrl, "/")
 
-	// 判断是否需要使用适配器
+	// 检测是否需要使用适配器（判断是否需要API翻译）
 	adapterName := s.detectAdapter(cleanAPIUrl, model)
-	if adapterName != "" && s.config.RedirectEnabled && reqData["model"] == s.config.RedirectKeyword {
+	if adapterName != "" {
 		// 使用适配器转换请求
 		adapter := adapters.GetAdapter(adapterName)
 		transformedReq, err := adapter.AdaptRequest(reqData, model)
@@ -85,7 +91,7 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 			return nil, http.StatusInternalServerError, err
 		}
 		transformedBody, _ = json.Marshal(transformedReq)
-		targetURL = s.buildAdapterURL(cleanAPIUrl, adapterName)
+		targetURL = s.buildAdapterURL(cleanAPIUrl, adapterName, model)
 	} else {
 		// 不使用适配器，直接转发
 		transformedBody = requestBody
@@ -143,15 +149,17 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 	}
 
 	// 如果使用了适配器，转换响应
-	if adapterName != "" && s.config.RedirectEnabled {
+	if adapterName != "" {
 		adapter := adapters.GetAdapter(adapterName)
-		var respData map[string]interface{}
-		if err := json.Unmarshal(responseBody, &respData); err == nil {
-			adaptedResp, err := adapter.AdaptResponse(respData)
-			if err != nil {
-				log.Errorf("Failed to adapt response: %v", err)
-			} else {
-				responseBody, _ = json.Marshal(adaptedResp)
+		if adapter != nil {
+			var respData map[string]interface{}
+			if err := json.Unmarshal(responseBody, &respData); err == nil {
+				adaptedResp, err := adapter.AdaptResponse(respData)
+				if err != nil {
+					log.Errorf("Failed to adapt response: %v", err)
+				} else {
+					responseBody, _ = json.Marshal(adaptedResp)
+				}
 			}
 		}
 	}
@@ -174,11 +182,18 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 
 	originalModel := model
 
-	// 检查是否是重定向关键字
-	if s.config.RedirectEnabled && model == s.config.RedirectKeyword {
+	// 提取真实的模型名（处理 Gemini streamGenerateContent 的情况）
+	realModel := model
+	if strings.Contains(model, ":streamGenerateContent") {
+		realModel = strings.TrimSuffix(model, ":streamGenerateContent")
+	}
+
+	// 首先检查是否是重定向关键字
+	if s.config.RedirectEnabled && (realModel == s.config.RedirectKeyword || strings.HasPrefix(realModel, s.config.RedirectKeyword+":")) {
 		if s.config.RedirectTargetModel == "" {
 			return fmt.Errorf("redirect target model not configured")
 		}
+		log.Infof("Redirecting %s to model: %s", realModel, s.config.RedirectTargetModel)
 		model = s.config.RedirectTargetModel
 		reqData["model"] = model
 		requestBody, _ = json.Marshal(reqData)
@@ -193,10 +208,10 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 	// 清理路由 API URL（移除末尾斜杠）
 	cleanAPIUrl := strings.TrimSuffix(route.APIUrl, "/")
 
-	// 判断是否需要使用适配器
+	// 检测是否需要使用适配器（判断是否需要API翻译）
+	adapterName := s.detectAdapter(cleanAPIUrl, model)
 	var transformedBody []byte
 	var targetURL string
-	adapterName := s.detectAdapter(cleanAPIUrl, model)
 
 	if adapterName != "" {
 		// 使用适配器转换请求
@@ -213,7 +228,8 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 			return err
 		}
 		transformedBody, _ = json.Marshal(transformedReq)
-		targetURL = s.buildAdapterURL(cleanAPIUrl, adapterName)
+		// 对流式请求使用专门的URL构建函数
+		targetURL = s.buildAdapterStreamURL(cleanAPIUrl, adapterName, model)
 		log.Infof("Streaming to: %s (route: %s, adapter: %s)", targetURL, route.Name, adapterName)
 	} else {
 		// 不使用适配器，直接转发
@@ -407,26 +423,164 @@ func (s *ProxyService) detectAdapter(apiUrl, model string) string {
 	lowerURL := strings.ToLower(apiUrl)
 	lowerModel := strings.ToLower(model)
 
-	if strings.Contains(lowerURL, "anthropic") || strings.Contains(lowerModel, "claude") {
+	// 先检查是否是标准的 OpenAI 格式 API 端点，如果是，则不应用任何适配器
+	// 这样可以避免将 Gemini 适配器错误地应用到 OpenAI 兼容的 API 上
+	if isStandardOpenAIEndpoint(lowerURL) {
+		return "" // 对标准 OpenAI 端点不使用适配器
+	}
+
+	// 精确内容检测 - 基于API URL和模型名称中的关键词
+	// 使用更精确的匹配避免误匹配，例如避免 "glm" 与 "gemini" 的混淆
+	if containsExactWord(lowerURL, "anthropic") || containsExactWord(lowerModel, "claude") {
 		return "anthropic"
 	}
-	if strings.Contains(lowerURL, "gemini") || strings.Contains(lowerModel, "gemini") {
+	
+	// 使用更严格的匹配来检测 Gemini，避免 "glm" 与 "gemini" 等误匹配
+	if containsExactWord(lowerURL, "gemini") || containsExactWord(lowerModel, "gemini") {
 		return "gemini"
 	}
-	if strings.Contains(lowerURL, "deepseek") || strings.Contains(lowerModel, "deepseek") {
+	
+	if containsExactWord(lowerURL, "deepseek") || containsExactWord(lowerModel, "deepseek") {
 		return "deepseek"
 	}
 
 	return "" // 不需要适配器
 }
 
+// isStandardOpenAIEndpoint 检查 URL 是否为标准的 OpenAI API 端点
+// 如果是，则不应该应用任何适配器转换
+func isStandardOpenAIEndpoint(url string) bool {
+	// 检查是否包含标准的 OpenAI API 路径
+	if containsExactWord(url, "/v1/chat/completions") || 
+	   containsExactWord(url, "/v1/completions") ||
+	   containsExactWord(url, "/v1/embeddings") ||
+	   containsExactWord(url, "/v1/images/generations") ||
+	   containsExactWord(url, "/v1/audio/transcriptions") ||
+	   containsExactWord(url, "/v1/audio/speech") {
+		return true
+	}
+	
+	// 检查常见的 OpenAI 兼容 API 基础路径
+	if containsExactWord(url, "openai.com") || 
+	   containsExactWord(url, "api.openai.com") ||
+	   containsExactWord(url, "/openai/v1") ||
+	   containsExactWord(url, "/v1") { // 这太宽泛了，需要更具体的检查
+		// 对于 /v1 路径，需要更具体的检查，仅在确实包含 chat/completions 时才认为是 OpenAI API
+		if strings.Contains(url, "/v1/chat/completions") ||
+		   strings.Contains(url, "/v1/completions") {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// containsExactWord 检查 needle 是否作为一个独立的单词存在于 haystack 中
+// 通过检查边界字符来确保精确匹配，避免子串误匹配
+func containsExactWord(haystack, needle string) bool {
+	if haystack == needle {
+		return true
+	}
+	
+	// 使用更精确的查找方法，确保 needle 前后是边界或分隔符
+	for i := 0; i <= len(haystack)-len(needle); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			// 检查前面的字符（如果存在）是否为非字母数字字符
+			prevIsBoundary := i == 0 || !isAlphanumeric(rune(haystack[i-1]))
+			// 检查后面的字符（如果存在）是否为非字母数字字符
+			nextIsBoundary := i+len(needle) == len(haystack) || !isAlphanumeric(rune(haystack[i+len(needle)]))
+			
+			if prevIsBoundary && nextIsBoundary {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// isAlphanumeric 检查字符是否为字母或数字
+func isAlphanumeric(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+// isStandaloneMatch 检查 needle 是否作为一个独立的词在 haystack 中
+// 避免 "glm" 匹配到 "gemini" 这样的误匹配
+func isStandaloneMatch(haystack, needle string) bool {
+	// 检查 needle 作为独立词出现的情况
+	// 在 URL 中，独立词可能被 /、.、-、_ 等分隔符包围
+	// 在模型名中，可能被 -、_ 等分隔符包围
+	
+	// 如果完全匹配，返回 true
+	if haystack == needle {
+		return true
+	}
+	
+	// 检查 needle 是否被分隔符包围
+	// 使用简单的检查方式：检查 needle 前后是否是分隔符或字符串边界
+	for i := 0; i <= len(haystack)-len(needle); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			// 检查前面是否是边界或分隔符
+			prevIsDelimiter := i == 0 || isDelimiter(rune(haystack[i-1]))
+			// 检查后面是否是边界或分隔符
+			nextIsDelimiter := i+len(needle) == len(haystack) || isDelimiter(rune(haystack[i+len(needle)]))
+			
+			if prevIsDelimiter && nextIsDelimiter {
+				return true
+			}
+		}
+	}
+	
+	// 检查 needle 是否是另一个词的前缀但后跟分隔符（如 "gemini" 在 "gemini-pro" 中）
+	// 或后缀但前跟分隔符（如 "gemini" 在 "my-gemini" 中）
+	if len(needle) < len(haystack) {
+		if strings.HasPrefix(haystack, needle+"_") || strings.HasPrefix(haystack, needle+"-") ||
+			strings.HasSuffix(haystack, "_"+needle) || strings.HasSuffix(haystack, "-"+needle) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// isDelimiter 检查字符是否为分隔符
+func isDelimiter(r rune) bool {
+	return r == '/' || r == '.' || r == '-' || r == '_' || r == ':' || r == '?' || r == '&' || r == '#'
+}
+
 // buildAdapterURL 构建适配器URL
-func (s *ProxyService) buildAdapterURL(baseURL, adapterName string) string {
+func (s *ProxyService) buildAdapterURL(baseURL, adapterName, model string) string {
 	switch adapterName {
 	case "anthropic":
 		return baseURL + "/v1/messages"
 	case "gemini":
-		return baseURL + "/v1beta/models"
+		// 清理模型名，移除 :streamGenerateContent 后缀
+		cleanModel := model
+		if strings.Contains(model, ":streamGenerateContent") {
+			cleanModel = strings.TrimSuffix(model, ":streamGenerateContent")
+		}
+		return baseURL + "/v1beta/models/" + cleanModel + ":generateContent"
+	case "deepseek":
+		return baseURL + "/v1/chat/completions"
+	default:
+		return baseURL + "/v1/chat/completions"
+	}
+}
+
+// buildAdapterStreamURL 构建适配器流式URL
+func (s *ProxyService) buildAdapterStreamURL(baseURL, adapterName, model string) string {
+	switch adapterName {
+	case "anthropic":
+		return baseURL + "/v1/messages"
+	case "gemini":
+		// 处理 Gemini 的 streamGenerateContent 格式
+		cleanModel := model
+		if strings.Contains(model, ":streamGenerateContent") {
+			cleanModel = strings.TrimSuffix(model, ":streamGenerateContent")
+		}
+		return baseURL + "/v1beta/models/" + cleanModel + ":streamGenerateContent"
+	case "deepseek":
+		return baseURL + "/v1/chat/completions"
 	default:
 		return baseURL + "/v1/chat/completions"
 	}
