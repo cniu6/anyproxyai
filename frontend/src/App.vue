@@ -20,7 +20,7 @@
             <template #icon>
               <n-icon><HomeIcon /></n-icon>
             </template>
-            主页
+            {{ t('nav.home') }}
           </n-button>
 
           <n-button
@@ -31,7 +31,7 @@
             <template #icon>
               <n-icon><ListIcon /></n-icon>
             </template>
-            模型列表
+            {{ t('nav.models') }}
           </n-button>
 
           <n-button
@@ -42,7 +42,7 @@
             <template #icon>
               <n-icon><BarChartIcon /></n-icon>
             </template>
-            使用状态
+            {{ t('nav.stats') }}
           </n-button>
         </div>
 
@@ -72,11 +72,19 @@
             </template>
           </n-button>
 
+          <n-button quaternary circle @click="showLanguageModal = true">
+            <template #icon>
+              <n-icon :size="20">
+                <LanguageIcon />
+              </n-icon>
+            </template>
+          </n-button>
+
           <n-button type="primary" @click="showAddModal = true">
             <template #icon>
               <n-icon><AddIcon /></n-icon>
             </template>
-            添加路由
+            {{ t('nav.addRoute') }}
           </n-button>
         </div>
       </n-layout-header>
@@ -89,7 +97,7 @@
           <n-grid :cols="4" :x-gap="16" :y-gap="16" style="margin-bottom: 24px;">
             <n-grid-item>
               <n-card :bordered="false" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                <n-statistic label="路由总数" :value="stats.route_count">
+                <n-statistic :label="t('home.routeCount')" :value="stats.route_count">
                   <template #prefix>
                     <n-icon size="24" color="#fff">
                       <GitNetworkIcon />
@@ -101,7 +109,7 @@
 
             <n-grid-item>
               <n-card :bordered="false" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                <n-statistic label="模型总数" :value="stats.model_count">
+                <n-statistic :label="t('home.modelCount')" :value="stats.model_count">
                   <template #prefix>
                     <n-icon size="24" color="#fff">
                       <CubeIcon />
@@ -113,7 +121,7 @@
 
             <n-grid-item>
               <n-card :bordered="false" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-                <n-statistic label="请求总数" :value="stats.total_requests">
+                <n-statistic :label="t('home.totalRequests')" :value="stats.total_requests">
                   <template #prefix>
                     <n-icon size="24" color="#fff">
                       <StatsChartIcon />
@@ -125,7 +133,7 @@
 
             <n-grid-item>
               <n-card :bordered="false" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
-                <n-statistic label="今日 Token" :value="formatNumber(stats.today_tokens || 0)">
+                <n-statistic :label="t('home.todayTokens')" :value="formatNumber(stats.today_tokens || 0)">
                   <template #prefix>
                     <n-icon size="24" color="#fff">
                       <FlashIcon />
@@ -137,10 +145,10 @@
           </n-grid>
 
           <!-- Redirect Config -->
-          <n-card title="🔀 代理重定向配置" style="margin-bottom: 24px;" :bordered="false">
+          <n-card :title="'🔀 ' + t('home.redirectConfig')" style="margin-bottom: 24px;" :bordered="false">
             <n-space vertical>
               <n-space align="center">
-                <span>启用重定向:</span>
+                <span>{{ t('home.enableRedirect') }}:</span>
                 <n-switch v-model:value="redirectConfig.enabled" @update:value="saveRedirectConfig" />
               </n-space>
 
@@ -150,7 +158,7 @@
                 </n-tag>
                 <n-icon size="20"><ArrowForwardIcon /></n-icon>
                 <n-tag type="success" size="large" style="font-family: monospace;">
-                  {{ redirectConfig.targetModel || '未配置' }}
+                  {{ redirectConfig.targetModel || t('home.notConfigured') }}
                 </n-tag>
                 <n-tag v-if="redirectConfig.targetName" type="warning" size="large">
                   ({{ redirectConfig.targetName }})
@@ -164,23 +172,23 @@
                   <template #icon>
                     <n-icon><LocationIcon /></n-icon>
                   </template>
-                  跳转到目标模型
+                  {{ t('home.jumpToTarget') }}
                 </n-button>
               </n-space>
             </n-space>
           </n-card>
 
           <!-- API Config -->
-          <n-card title="🔑 本地 API 配置" style="margin-bottom: 24px;" :bordered="false">
+          <n-card :title="'🔑 ' + t('home.apiConfig')" style="margin-bottom: 24px;" :bordered="false">
             <n-grid :cols="2" :x-gap="24">
               <!-- 左侧: OpenAI 兼容接口 -->
               <n-grid-item>
                 <n-space vertical :size="12">
-                  <n-text strong style="font-size: 14px;">OpenAI 兼容接口</n-text>
-                  <n-text depth="3" style="font-size: 12px;">标准的 OpenAI API 格式接口（CherryStudio 等）</n-text>
+                  <n-text strong style="font-size: 14px;">{{ t('home.openaiInterface') }}</n-text>
+                  <n-text depth="3" style="font-size: 12px;">{{ t('home.openaiInterfaceDesc') }}</n-text>
 
                   <div>
-                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">API 地址</n-text>
+                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">{{ t('home.apiAddress') }}</n-text>
                     <n-input
                       :value="config.localApiEndpoint + '/api'"
                       readonly
@@ -195,12 +203,12 @@
                       </template>
                     </n-input>
                     <n-text depth="3" style="font-size: 11px; margin-top: 4px; display: block; color: #18a058;">
-                      📝 OpenAI 兼容接口路径：{{ config.localApiEndpoint }}/api/v1/chat/completions
+                      📝 {{ t('home.openaiPath') }}：{{ config.localApiEndpoint }}/api/v1/chat/completions
                     </n-text>
                   </div>
 
                   <div>
-                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">API Key</n-text>
+                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">{{ t('home.apiKey') }}</n-text>
                     <n-input
                       :value="maskApiKey(config.localApiKey)"
                       readonly
@@ -216,7 +224,6 @@
                           <template #icon>
                             <n-icon><RefreshIcon /></n-icon>
                           </template>
-                          随机
                         </n-button>
                       </template>
                     </n-input>
@@ -227,11 +234,11 @@
               <!-- 右侧: 翻译 API 接口 -->
               <n-grid-item>
                 <n-space vertical :size="12">
-                  <n-text strong style="font-size: 14px;">翻译 API 接口</n-text>
-                  <n-text depth="3" style="font-size: 12px;">用于将 OpenAI SDK 格式转换为对应格式</n-text>
+                  <n-text strong style="font-size: 14px;">{{ t('home.translationInterface') }}</n-text>
+                  <n-text depth="3" style="font-size: 12px;">{{ t('home.translationInterfaceDesc') }}</n-text>
 
                   <div>
-                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">Claude Code 专用接口</n-text>
+                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">{{ t('home.claudeCodeInterface') }}</n-text>
                     <n-input
                       :value="config.localApiEndpoint + '/api/claudecode'"
                       readonly
@@ -246,12 +253,12 @@
                       </template>
                     </n-input>
                     <n-text depth="3" style="font-size: 11px; margin-top: 4px; display: block; color: #18a058;">
-                      📝 Claude Code 接口路径：{{ config.localApiEndpoint }}/api/claudecode/v1/messages（拼接工具链）（支持流）
+                      📝 {{ t('home.claudeCodePath') }}：{{ config.localApiEndpoint }}/api/claudecode/v1/messages
                     </n-text>
                   </div>
 
                   <div>
-                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">Anthropic API（CherryStudio等）</n-text>
+                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">{{ t('home.anthropicInterface') }}</n-text>
                     <n-input
                       :value="config.localApiEndpoint + '/api/anthropic'"
                       readonly
@@ -266,12 +273,12 @@
                       </template>
                     </n-input>
                     <n-text depth="3" style="font-size: 11px; margin-top: 4px; display: block; color: #18a058;">
-                      📝 Anthropic 接口路径：{{ config.localApiEndpoint }}/api/anthropic/v1/messages
+                      📝 {{ t('home.anthropicPath') }}：{{ config.localApiEndpoint }}/api/anthropic/v1/messages
                     </n-text>
                   </div>
 
                   <div>
-                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">Gemini API</n-text>
+                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">{{ t('home.geminiInterface') }}</n-text>
                     <n-input
                       :value="config.localApiEndpoint + '/api/gemini'"
                       readonly
@@ -286,7 +293,7 @@
                       </template>
                     </n-input>
                     <n-text depth="3" style="font-size: 11px; margin-top: 4px; display: block; color: #18a058;">
-                      📝 Gemini 生成接口路径：{{ config.localApiEndpoint }}/api/gemini/completions
+                      📝 {{ t('home.geminiPath') }}：{{ config.localApiEndpoint }}/api/gemini/completions
                     </n-text>
                   </div>
                 </n-space>
@@ -297,20 +304,20 @@
 
         <!-- Models Page -->
         <div v-if="currentPage === 'models'">
-          <n-card title="📋 模型路由列表（按分组显示）" :bordered="false">
+          <n-card :title="'📋 ' + t('models.title')" :bordered="false">
             <template #header-extra>
               <n-space>
                 <n-button @click="exportRoutes" type="primary" ghost>
                   <template #icon>
                     <n-icon><ArrowForwardIcon style="transform: rotate(-90deg);" /></n-icon>
                   </template>
-                  导出 JSON
+                  {{ t('models.exportJson') }}
                 </n-button>
                 <n-button @click="triggerImport" type="primary" ghost>
                   <template #icon>
                     <n-icon><ArrowForwardIcon style="transform: rotate(90deg);" /></n-icon>
                   </template>
-                  导入 JSON
+                  {{ t('models.importJson') }}
                 </n-button>
                 <n-button @click="loadRoutes" quaternary circle>
                   <template #icon>
@@ -333,7 +340,7 @@
                 v-for="(groupRoutes, groupName) in groupedRoutes"
                 :key="groupName"
                 :name="groupName"
-                :title="`分组: ${groupName || '未分组'} (${groupRoutes.length} 个模型)`"
+                :title="`${t('models.group')}: ${groupName || t('models.ungrouped')} (${groupRoutes.length} ${t('models.modelCount')})`"
               >
                 <n-data-table
                   :columns="modelsPageColumns"
@@ -350,7 +357,7 @@
 
             <n-empty
               v-if="routes.length === 0"
-              description="暂无路由数据"
+              :description="t('models.noRoutes')"
               style="margin: 60px 0;"
             />
           </n-card>
@@ -360,18 +367,18 @@
         <div v-if="currentPage === 'stats'">
           <n-space vertical :size="16">
             <!-- 今日消耗统计卡片 -->
-            <n-card title="📊 今日消耗统计" :bordered="false">
+            <n-card :title="'📊 ' + t('stats.todayStats')" :bordered="false">
               <template #header-extra>
                 <n-button type="error" quaternary @click="showClearStatsDialog">
                   <template #icon>
                     <n-icon><TrashIcon /></n-icon>
                   </template>
-                  清空数据
+                  {{ t('stats.clearData') }}
                 </n-button>
               </template>
               <n-grid :cols="4" :x-gap="16">
                 <n-grid-item>
-                  <n-statistic label="今日 Token 消耗" :value="formatNumber(stats.today_tokens || 0)">
+                  <n-statistic :label="t('stats.todayTokens')" :value="formatNumber(stats.today_tokens || 0)">
                     <template #prefix>
                       <n-icon size="20" color="#18a058">
                         <FlashIcon />
@@ -380,7 +387,7 @@
                   </n-statistic>
                 </n-grid-item>
                 <n-grid-item>
-                  <n-statistic label="今日请求数" :value="stats.today_requests || 0">
+                  <n-statistic :label="t('stats.todayRequests')" :value="stats.today_requests || 0">
                     <template #prefix>
                       <n-icon size="20" color="#18a058">
                         <StatsChartIcon />
@@ -389,7 +396,7 @@
                   </n-statistic>
                 </n-grid-item>
                 <n-grid-item>
-                  <n-statistic label="总 Token 消耗" :value="formatNumber(stats.total_tokens)">
+                  <n-statistic :label="t('stats.totalTokens')" :value="formatNumber(stats.total_tokens)">
                     <template #prefix>
                       <n-icon size="20" color="#18a058">
                         <FlashIcon />
@@ -398,7 +405,7 @@
                   </n-statistic>
                 </n-grid-item>
                 <n-grid-item>
-                  <n-statistic label="总请求数" :value="stats.total_requests">
+                  <n-statistic :label="t('stats.totalRequests')" :value="stats.total_requests">
                     <template #prefix>
                       <n-icon size="20" color="#18a058">
                         <StatsChartIcon />
@@ -410,7 +417,7 @@
             </n-card>
 
             <!-- GitHub 热力图样式的历史使用量 -->
-            <n-card title="🔥 历史 Token 使用热力图" :bordered="false">
+            <n-card :title="'🔥 ' + t('stats.heatmap')" :bordered="false">
               <div class="heatmap-container" @mouseleave="heatmapTooltip.show = false">
                 <div class="heatmap-months-row">
                   <span 
@@ -438,29 +445,29 @@
                   class="heatmap-tooltip"
                   :style="{ left: heatmapTooltip.x + 'px', top: heatmapTooltip.y + 'px' }"
                 >
-                  <div style="font-weight: bold;">{{ heatmapTooltip.date }}</div>
-                  <div>Token: {{ formatNumber(heatmapTooltip.tokens) }}</div>
-                  <div>请求: {{ heatmapTooltip.requests }}</div>
+                  <div style="font-weight: bold;">{{ t('stats.date') }}: {{ heatmapTooltip.date }}</div>
+                  <div>{{ t('stats.tokens') }}: {{ formatNumber(heatmapTooltip.tokens) }}</div>
+                  <div>{{ t('stats.requestCount') }}: {{ heatmapTooltip.requests }}</div>
                 </div>
                 <div class="heatmap-legend">
-                  <span>少</span>
+                  <span>{{ t('stats.less') }}</span>
                   <div class="legend-box level-0"></div>
                   <div class="legend-box level-1"></div>
                   <div class="legend-box level-2"></div>
                   <div class="legend-box level-3"></div>
                   <div class="legend-box level-4"></div>
-                  <span>多</span>
+                  <span>{{ t('stats.more') }}</span>
                 </div>
               </div>
             </n-card>
 
             <!-- 今日按时间段显示的折线图 -->
-            <n-card title="📈 今日 Token 使用趋势" :bordered="false">
+            <n-card :title="'📈 ' + t('stats.todayTrend')" :bordered="false">
               <v-chart :option="todayChartOption" style="height: 300px;" :theme="isDark ? 'dark' : ''" autoresize />
             </n-card>
 
             <!-- 历史使用量 - 接口使用排行 -->
-            <n-card title="🏆 接口使用排行（历史）" :bordered="false">
+            <n-card :title="'🏆 ' + t('stats.modelRanking')" :bordered="false">
               <n-data-table
                 :columns="rankingColumns"
                 :data="modelRankingData"
@@ -474,15 +481,15 @@
 
         <!-- Settings Page -->
         <div v-if="currentPage === 'settings'">
-          <n-card title="⚙️ 应用设置" :bordered="false">
+          <n-card :title="'⚙️ ' + t('settings.title')" :bordered="false">
             <n-space vertical :size="24">
               <!-- GitHub 项目信息 -->
               <div>
-                <n-text strong style="font-size: 16px;">项目信息</n-text>
+                <n-text strong style="font-size: 16px;">{{ t('settings.projectInfo') }}</n-text>
                 <n-space vertical :size="12" style="margin-top: 12px;">
                   <n-space align="center">
                     <n-icon size="20"><LogoGithubIcon /></n-icon>
-                    <n-text>GitHub 仓库:</n-text>
+                    <n-text>{{ t('settings.githubRepo') }}:</n-text>
                     <n-button text type="primary" tag="a" href="https://github.com/cniu6/anyproxyai" target="_blank">
                       github.com/cniu6/anyproxyai
                     </n-button>
@@ -490,12 +497,12 @@
 
                   <n-space align="center">
                     <n-icon size="20"><InformationCircleIcon /></n-icon>
-                    <n-text>版本: v1.0.0</n-text>
+                    <n-text>{{ t('settings.version') }}: v1.0.0</n-text>
                   </n-space>
 
                   <n-space align="center">
                     <n-icon size="20"><CodeIcon /></n-icon>
-                    <n-text>基于 Wails + Vue 3 + Naive UI 构建</n-text>
+                    <n-text>{{ t('settings.builtWith') }}</n-text>
                   </n-space>
                 </n-space>
               </div>
@@ -504,11 +511,11 @@
 
               <!-- 应用选项 -->
               <div>
-                <n-text strong style="font-size: 16px;">应用选项</n-text>
+                <n-text strong style="font-size: 16px;">{{ t('settings.appOptions') }}</n-text>
                 <n-space vertical :size="16" style="margin-top: 12px;">
                   <!-- 重定向关键字设置 -->
                   <div>
-                    <n-text depth="2" style="font-size: 14px; margin-bottom: 8px; display: block;">重定向关键字</n-text>
+                    <n-text depth="2" style="font-size: 14px; margin-bottom: 8px; display: block;">{{ t('settings.redirectKeyword') }}</n-text>
                     <n-input
                       v-model:value="settings.redirectKeyword"
                       placeholder="proxy_auto"
@@ -516,34 +523,56 @@
                     >
                       <template #suffix>
                         <n-button text size="small" @click="updateRedirectKeyword">
-                          保存
+                          {{ t('settings.save') }}
                         </n-button>
                       </template>
                     </n-input>
                     <n-text depth="3" style="font-size: 12px; margin-top: 4px; display: block;">
-                      修改此关键字用于触发代理重定向功能,默认为 "proxy_auto"
+                      {{ t('settings.redirectKeywordDesc') }}
                     </n-text>
                   </div>
 
                   <n-checkbox v-model:checked="settings.autoStart" @update:checked="toggleAutoStart">
-                    开机自启动
+                    {{ t('settings.autoStart') }}
                   </n-checkbox>
 
                   <n-checkbox v-model:checked="settings.minimizeToTray" @update:checked="toggleMinimizeToTray">
-                    关闭时最小化到托盘
+                    {{ t('settings.minimizeToTray') }}
                   </n-checkbox>
                 </n-space>
               </div>
 
               <n-divider />
 
+              <!-- 语言设置 -->
+              <div>
+                <n-text strong style="font-size: 16px;">{{ t('settings.languageSettings') }}</n-text>
+                <n-space align="center" style="margin-top: 12px;">
+                  <n-text>{{ t('settings.language') }}:</n-text>
+                  <n-select
+                    :value="currentLocale"
+                    @update:value="switchLanguage"
+                    :options="[
+                      { label: '🇨🇳 简体中文', value: 'zh-CN' },
+                      { label: '🇺🇸 English', value: 'en-US' }
+                    ]"
+                    style="width: 160px;"
+                  />
+                </n-space>
+                <n-text depth="3" style="font-size: 12px; margin-top: 4px; display: block;">
+                  {{ t('settings.languageDesc') }}
+                </n-text>
+              </div>
+
+              <n-divider />
+
               <!-- 主题设置 -->
               <div>
-                <n-text strong style="font-size: 16px;">主题设置</n-text>
+                <n-text strong style="font-size: 16px;">{{ t('settings.themeSettings') }}</n-text>
                 <n-space align="center" style="margin-top: 12px;">
-                  <n-text>当前主题:</n-text>
+                  <n-text>{{ t('settings.currentTheme') }}:</n-text>
                   <n-tag :type="isDark ? 'info' : 'warning'">
-                    {{ isDark ? '暗黑模式' : '明亮模式' }}
+                    {{ isDark ? t('settings.darkMode') : t('settings.lightMode') }}
                   </n-tag>
                   <n-button @click="toggleTheme">
                     <template #icon>
@@ -552,7 +581,7 @@
                         <SunnyIcon v-else />
                       </n-icon>
                     </template>
-                    切换主题
+                    {{ t('settings.switchTheme') }}
                   </n-button>
                 </n-space>
               </div>
@@ -575,14 +604,37 @@
       @route-updated="handleRouteUpdated"
     />
 
+    <!-- Language Switch Modal -->
+    <n-modal
+      v-model:show="showLanguageModal"
+      preset="card"
+      :title="t('settings.language')"
+      style="width: 400px;"
+      :bordered="false"
+    >
+      <n-space vertical :size="16">
+        <n-text depth="3">{{ t('settings.languageDesc') }}</n-text>
+        <n-radio-group :value="currentLocale" @update:value="switchLanguage">
+          <n-space vertical>
+            <n-radio value="zh-CN" size="large">
+              🇨🇳 简体中文
+            </n-radio>
+            <n-radio value="en-US" size="large">
+              🇺🇸 English
+            </n-radio>
+          </n-space>
+        </n-radio-group>
+      </n-space>
+    </n-modal>
+
     <!-- Clear Stats Confirmation Dialog -->
     <n-modal
       v-model:show="showClearDialog"
       preset="dialog"
-      title="确认清空数据"
+      :title="t('clearDialog.title')"
       type="error"
-      positive-text="确认清空"
-      negative-text="取消"
+      :positive-text="t('clearDialog.confirm')"
+      :negative-text="t('clearDialog.cancel')"
       @positive-click="confirmClearStats"
       @negative-click="showClearDialog = false"
     >
@@ -591,15 +643,15 @@
           <TrashIcon />
         </n-icon>
       </template>
-      确定要清空所有统计数据吗？此操作不可恢复！
+      {{ t('clearDialog.message') }}
       <br>
       <br>
-      <strong>将被清空的数据包括：</strong>
+      <strong>{{ t('clearDialog.dataInclude') }}</strong>
       <ul>
-        <li>所有请求日志</li>
-        <li>Token 使用统计</li>
-        <li>模型使用排行</li>
-        <li>历史热力图数据</li>
+        <li>{{ t('clearDialog.requestLogs') }}</li>
+        <li>{{ t('clearDialog.tokenStats') }}</li>
+        <li>{{ t('clearDialog.modelRanking') }}</li>
+        <li>{{ t('clearDialog.heatmapData') }}</li>
       </ul>
     </n-modal>
   </n-config-provider>
@@ -607,6 +659,7 @@
 
 <script setup>
 import { ref, h, onMounted, computed, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { darkTheme, NButton, NIcon, NTag, NSpace, NModal, NTooltip } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -641,6 +694,7 @@ import {
   Code as CodeIcon,
   Link as LinkIcon,
   Trash as TrashIcon,
+  Language as LanguageIcon,
 } from '@vicons/ionicons5'
 import AddRouteModal from './components/AddRouteModal.vue'
 import EditRouteModal from './components/EditRouteModal.vue'
@@ -663,6 +717,21 @@ const showMessage = (type, content) => {
   }
 }
 
+// i18n
+const { t, locale } = useI18n()
+
+// Language
+const showLanguageModal = ref(false)
+const currentLocale = ref(localStorage.getItem('app-locale') || 'zh-CN')
+
+const switchLanguage = (lang) => {
+  locale.value = lang
+  currentLocale.value = lang
+  localStorage.setItem('app-locale', lang)
+  showLanguageModal.value = false
+  showMessage("success", t('messages.languageChanged'))
+}
+
 // Page State
 const currentPage = ref('home') // 'home' | 'models' | 'stats' | 'settings'
 const refreshing = ref(false)
@@ -677,7 +746,7 @@ const themeOverrides = {
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
-  showMessage("info", isDark.value ? '已切换到暗黑模式' : '已切换到明亮模式')
+  showMessage("info", isDark.value ? t('messages.switchedToDark') : t('messages.switchedToLight'))
 }
 
 // 刷新所有数据
@@ -692,9 +761,9 @@ const refreshAll = async () => {
       loadHourlyStats(),
       loadModelRanking()
     ])
-    showMessage("success", '数据已刷新')
+    showMessage("success", t('messages.dataRefreshed'))
   } catch (error) {
-    showMessage("error", '刷新失败: ' + error)
+    showMessage("error", t('messages.refreshFailed') + ': ' + error)
   } finally {
     refreshing.value = false
   }
@@ -709,7 +778,7 @@ const settings = ref({
 
 const updateRedirectKeyword = async () => {
   if (!window.go || !window.go.main || !window.go.main.App) {
-    showMessage("error", 'Wails 运行时未就绪')
+    showMessage("error", t('messages.wailsNotReady'))
     return
   }
   try {
@@ -719,28 +788,28 @@ const updateRedirectKeyword = async () => {
       redirectConfig.value.targetModel
     )
     redirectConfig.value.keyword = settings.value.redirectKeyword
-    showMessage("success", '重定向关键字已更新')
+    showMessage("success", t('messages.redirectKeywordUpdated'))
     await loadConfig()
   } catch (error) {
-    showMessage("error", '更新失败: ' + error)
+    showMessage("error", t('messages.updateFailed') + ': ' + error)
   }
 }
 
 const saveSettings = () => {
-  showMessage("info", '设置保存功能开发中')
+  showMessage("info", t('messages.settingFailed'))
 }
 
 // 切换开机自启动
 const toggleAutoStart = async (enabled) => {
   if (!window.go || !window.go.main || !window.go.main.App) {
-    showMessage("error", 'Wails 运行时未就绪')
+    showMessage("error", t('messages.wailsNotReady'))
     return
   }
   try {
     await window.go.main.App.SetAutoStart(enabled)
-    showMessage("success", enabled ? '已启用开机自启动' : '已禁用开机自启动')
+    showMessage("success", enabled ? t('messages.autoStartEnabled') : t('messages.autoStartDisabled'))
   } catch (error) {
-    showMessage("error", '设置失败: ' + error)
+    showMessage("error", t('messages.settingFailed') + ': ' + error)
     settings.value.autoStart = !enabled // 恢复状态
   }
 }
@@ -748,14 +817,14 @@ const toggleAutoStart = async (enabled) => {
 // 切换最小化到托盘
 const toggleMinimizeToTray = async (enabled) => {
   if (!window.go || !window.go.main || !window.go.main.App) {
-    showMessage("error", 'Wails 运行时未就绪')
+    showMessage("error", t('messages.wailsNotReady'))
     return
   }
   try {
     await window.go.main.App.SetMinimizeToTray(enabled)
-    showMessage("success", enabled ? '已启用关闭时最小化到托盘' : '已禁用关闭时最小化到托盘')
+    showMessage("success", enabled ? t('messages.minimizeEnabled') : t('messages.minimizeDisabled'))
   } catch (error) {
-    showMessage("error", '设置失败: ' + error)
+    showMessage("error", t('messages.settingFailed') + ': ' + error)
     settings.value.minimizeToTray = !enabled // 恢复状态
   }
 }
@@ -855,7 +924,7 @@ const heatmapMonthsWithPosition = computed(() => {
   const dayOfWeek = startDate.getDay()
   startDate.setDate(startDate.getDate() - dayOfWeek)
   
-  const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
+  const monthNames = t('stats.months')
   let lastMonth = -1
   
   // 遍历所有天数来检测月份变化
@@ -921,7 +990,7 @@ const todayChartOption = computed(() => {
       }
     },
     legend: {
-      data: ['Token使用量', '请求数'],
+      data: [t('stats.tokens'), t('stats.requestCount')],
       textStyle: {
         color: isDark.value ? '#fff' : '#333'
       }
@@ -945,13 +1014,13 @@ const todayChartOption = computed(() => {
       },
       {
         type: 'value',
-        name: '请求数',
+        name: t('stats.requestCount'),
         position: 'right'
       }
     ],
     series: [
       {
-        name: 'Token使用量',
+        name: t('stats.tokens'),
         type: 'line',
         smooth: true,
         data: tokensData,
@@ -967,7 +1036,7 @@ const todayChartOption = computed(() => {
         }
       },
       {
-        name: '请求数',
+        name: t('stats.requestCount'),
         type: 'line',
         smooth: true,
         data: requestsData,
@@ -986,31 +1055,31 @@ const todayChartOption = computed(() => {
 // 接口使用排行数据
 const modelRankingData = ref([])
 
-const rankingColumns = [
-  { title: '排名', key: 'rank', width: 80 },
+const rankingColumns = computed(() => [
+  { title: t('stats.rank'), key: 'rank', width: 80 },
   {
-    title: '模型',
+    title: t('stats.model'),
     key: 'model',
     render(row) {
       return h(NTag, { type: 'info' }, { default: () => row.model })
     }
   },
-  { title: '请求次数', key: 'requests' },
+  { title: t('stats.requests'), key: 'requests' },
   {
-    title: 'Token消耗',
+    title: t('stats.totalTokensCol'),
     key: 'total_tokens',
     render(row) {
       return formatNumber(row.total_tokens || 0)
     }
   },
   {
-    title: '成功率',
+    title: t('stats.successRate'),
     key: 'success_rate',
     render(row) {
       return `${row.success_rate || 0}%`
     }
   },
-]
+])
 
 // Config
 const config = ref({
@@ -1066,7 +1135,7 @@ const setAsRedirect = async (model) => {
   redirectConfig.value.targetModel = model
   redirectConfig.value.enabled = true
   await saveRedirectConfig()
-  showMessage("success", `已设置 ${model} 为重定向目标`)
+  showMessage("success", t('home.setRedirectSuccess'))
 }
 
 // 跳转到目标模型
@@ -1160,19 +1229,19 @@ const columns = [
 ]
 
 // Table columns for models page (with redirect button)
-const modelsPageColumns = [
+const modelsPageColumns = computed(() => [
   {
     title: 'ID',
     key: 'id',
     width: 60,
   },
   {
-    title: '名称',
+    title: t('models.name'),
     key: 'name',
     width: 150,
   },
   {
-    title: '模型',
+    title: t('models.model'),
     key: 'model',
     width: 200,
     render(row) {
@@ -1181,21 +1250,21 @@ const modelsPageColumns = [
           h(NTag, { type: 'info' }, { default: () => row.model }),
           // 如果是当前重定向目标，显示标记
           redirectConfig.value.targetModel === row.model
-            ? h(NTag, { type: 'success', size: 'small' }, { default: () => '重定向目标' })
+            ? h(NTag, { type: 'success', size: 'small' }, { default: () => t('home.redirectTarget') })
             : null
         ]
       })
     },
   },
   {
-    title: 'API URL',
+    title: t('models.apiUrl'),
     key: 'api_url',
     ellipsis: {
       tooltip: true,
     },
   },
   {
-    title: '操作',
+    title: t('models.actions'),
     key: 'actions',
     width: 280,
     render(row) {
@@ -1207,7 +1276,7 @@ const modelsPageColumns = [
               size: 'small',
               onClick: () => handleEdit(row),
             },
-            { default: () => '编辑', icon: () => h(NIcon, {}, { default: () => h(EditIcon) }) }
+            { default: () => t('models.edit'), icon: () => h(NIcon, {}, { default: () => h(EditIcon) }) }
           ),
           h(
             NButton,
@@ -1216,7 +1285,7 @@ const modelsPageColumns = [
               type: 'error',
               onClick: () => handleDelete(row),
             },
-            { default: () => '删除', icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
+            { default: () => t('models.delete'), icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
           ),
           h(
             NButton,
@@ -1225,13 +1294,13 @@ const modelsPageColumns = [
               type: 'primary',
               onClick: () => setAsRedirect(row.model),
             },
-            { default: () => '设为重定向', icon: () => h(NIcon, {}, { default: () => h(LinkIcon) }) }
+            { default: () => t('models.setAsTarget'), icon: () => h(NIcon, {}, { default: () => h(LinkIcon) }) }
           ),
         ]
       })
     },
   },
-]
+])
 
 // Computed
 const modelOptions = computed(() => {
@@ -1255,7 +1324,7 @@ const loadRoutes = async () => {
     expandedGroups.value = Object.keys(groupedRoutes.value)
   } catch (error) {
     console.error('Failed to load routes:', error)
-    showMessage("error", '加载路由失败: ' + error)
+    showMessage("error", t('messages.refreshFailed') + ': ' + error)
   }
 }
 
@@ -1348,11 +1417,11 @@ const saveRedirectConfig = async () => {
       redirectConfig.value.keyword,
       redirectConfig.value.targetModel
     )
-    showMessage("success", '配置已保存')
+    showMessage("success", t('messages.redirectConfigSaved'))
     // 重新加载配置以获取最新的 targetName
     await loadConfig()
   } catch (error) {
-    showMessage("error", '保存配置失败: ' + error)
+    showMessage("error", t('messages.redirectConfigFailed') + ': ' + error)
   }
 }
 
@@ -1379,11 +1448,11 @@ const handleDelete = async (row) => {
   }
   try {
     await window.go.main.App.DeleteRoute(row.id)
-    showMessage("success", '路由已删除')
+    showMessage("success", t('deleteRoute.deleted'))
     loadRoutes()
     loadStats()
   } catch (error) {
-    showMessage("error", '删除失败: ' + error)
+    showMessage("error", t('deleteRoute.deleteFailed') + ': ' + error)
   }
 }
 
@@ -1397,9 +1466,9 @@ const maskApiKey = (key) => {
 const copyToClipboard = async (text) => {
   try {
     await navigator.clipboard.writeText(text)
-    showMessage("success", '已复制到剪贴板')
+    showMessage("success", t('messages.copySuccess'))
   } catch (error) {
-    showMessage("error", '复制失败')
+    showMessage("error", t('messages.copyFailed'))
   }
 }
 
@@ -1436,7 +1505,7 @@ const generateNewApiKey = async () => {
     showMessage("success", 'API Key 已随机更新')
     await loadConfig() // 重新加载配置
   } catch (error) {
-    showMessage("error", '更新 API Key 失败: ' + error)
+    showMessage("error", t('messages.updateFailed') + ': ' + error)
   }
 }
 
@@ -1462,9 +1531,9 @@ const exportRoutes = () => {
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
 
-    showMessage("success", `已导出 ${exportData.length} 个路由`)
+    showMessage("success", t('models.exportSuccess'))
   } catch (error) {
-    showMessage("error", '导出失败: ' + error)
+    showMessage("error", t('models.exportFailed') + ': ' + error)
   }
 }
 
@@ -1487,7 +1556,7 @@ const confirmClearStats = async () => {
 
   try {
     await window.go.main.App.ClearStats()
-    showMessage("success", '统计数据已清空')
+    showMessage("success", t('stats.clearSuccess'))
     showClearDialog.value = false
 
     // 重新加载数据
@@ -1496,7 +1565,7 @@ const confirmClearStats = async () => {
     await loadHourlyStats()
     await loadModelRanking()
   } catch (error) {
-    showMessage("error", '清空失败: ' + error)
+    showMessage("error", t('stats.clearFailed') + ': ' + error)
   }
 }
 
@@ -1538,11 +1607,11 @@ const handleFileImport = async (event) => {
       }
     }
 
-    showMessage("success", `导入完成：成功 ${successCount} 个，失败 ${failCount} 个`)
+    showMessage("success", t('models.importSuccess', { count: successCount }))
     loadRoutes()
     loadStats()
   } catch (error) {
-    showMessage("error", '导入失败: ' + error)
+    showMessage("error", t('models.importFailed') + ': ' + error)
   } finally {
     // 清空文件输入
     if (fileInput.value) {

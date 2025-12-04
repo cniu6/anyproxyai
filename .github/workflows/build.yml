@@ -12,6 +12,9 @@ on:
       - main
       - master
   workflow_dispatch:
+  # 提交信息以 package( 开头时触发构建
+  # 例如: package(release): v1.0.0
+  # 例如: package(build): 修复构建问题
 
 jobs:
   build-windows:
@@ -41,11 +44,17 @@ jobs:
       - name: Build Windows arm64
         run: wails build -platform windows/arm64 -o anyproxyai-windows-arm64.exe
       
-      - name: Upload Windows artifacts
+      - name: Upload Windows amd64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-builds
-          path: build/bin/anyproxyai-windows-*.exe
+          name: anyproxyai-windows-amd64
+          path: build/bin/anyproxyai-windows-amd64.exe
+      
+      - name: Upload Windows arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyproxyai-windows-arm64
+          path: build/bin/anyproxyai-windows-arm64.exe
 
   build-linux-amd64:
     runs-on: ubuntu-22.04
@@ -169,11 +178,17 @@ jobs:
           zip -r anyproxyai-darwin-amd64.zip anyproxyai-darwin-amd64.app
           zip -r anyproxyai-darwin-arm64.zip anyproxyai-darwin-arm64.app
       
-      - name: Upload macOS artifacts
+      - name: Upload macOS amd64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-builds
-          path: build/bin/anyproxyai-darwin-*.zip
+          name: anyproxyai-darwin-amd64
+          path: build/bin/anyproxyai-darwin-amd64.zip
+      
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyproxyai-darwin-arm64
+          path: build/bin/anyproxyai-darwin-arm64.zip
 
   release:
     needs: [build-windows, build-linux-amd64, build-linux-arm64, build-macos]
@@ -189,9 +204,11 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/windows-builds/*
+            artifacts/anyproxyai-windows-amd64/*
+            artifacts/anyproxyai-windows-arm64/*
             artifacts/linux-amd64-build/*
             artifacts/linux-arm64-build/*
-            artifacts/macos-builds/*
+            artifacts/anyproxyai-darwin-amd64/*
+            artifacts/anyproxyai-darwin-arm64/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

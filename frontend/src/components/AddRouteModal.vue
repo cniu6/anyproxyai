@@ -2,7 +2,7 @@
   <n-modal
     v-model:show="showModal"
     preset="card"
-    title="添加路由"
+    :title="t('addRoute.title')"
     style="width: 600px;"
     :mask-closable="false"
     @after-leave="resetForm"
@@ -14,60 +14,60 @@
       label-placement="left"
       label-width="100px"
     >
-      <n-form-item label="路由名称" path="name">
-        <n-input v-model:value="formModel.name" placeholder="例如: OpenAI Official" />
+      <n-form-item :label="t('addRoute.routeName')" path="name">
+        <n-input v-model:value="formModel.name" :placeholder="t('addRoute.routeNamePlaceholder')" />
       </n-form-item>
 
-      <n-form-item label="模型 ID" path="model">
+      <n-form-item :label="t('addRoute.modelId')" path="model">
         <n-space style="width: 100%;">
           <n-input
             v-model:value="formModel.model"
-            placeholder="例如: gpt-4"
+            :placeholder="t('addRoute.modelIdPlaceholder')"
             style="flex: 1;"
           />
           <n-button @click="fetchModels" :loading="fetchingModels">
-            获取模型
+            {{ t('addRoute.fetchModels') }}
           </n-button>
         </n-space>
       </n-form-item>
 
-      <n-form-item label="API URL" path="apiUrl">
+      <n-form-item :label="t('addRoute.apiUrl')" path="apiUrl">
         <n-input
           v-model:value="formModel.apiUrl"
-          placeholder="https://api.openai.com/v1"
+          :placeholder="t('addRoute.apiUrlPlaceholder')"
           @blur="cleanApiUrl"
         />
         <template #feedback>
-          <span style="color: #888; font-size: 12px;">💡 提示：API URL 一般不要在末尾加斜杠 (/)</span>
+          <span style="color: #888; font-size: 12px;">{{ t('addRoute.apiUrlTip') }}</span>
         </template>
       </n-form-item>
 
-      <n-form-item label="API Key" path="apiKey">
-        <n-input v-model:value="formModel.apiKey" type="password" placeholder="留空则透传原始请求的 Key" show-password-on="click" />
+      <n-form-item :label="t('addRoute.apiKey')" path="apiKey">
+        <n-input v-model:value="formModel.apiKey" type="password" :placeholder="t('addRoute.apiKeyPlaceholder')" show-password-on="click" />
       </n-form-item>
 
-      <n-form-item label="分组" path="group">
-        <n-input v-model:value="formModel.group" placeholder="例如: production" />
+      <n-form-item :label="t('addRoute.group')" path="group">
+        <n-input v-model:value="formModel.group" :placeholder="t('addRoute.groupPlaceholder')" />
       </n-form-item>
 
-      <n-form-item label="API 格式" path="format">
+      <n-form-item :label="t('addRoute.apiFormat')" path="format">
         <n-select
           v-model:value="formModel.format"
           :options="formatOptions"
-          placeholder="选择 API 格式"
+          :placeholder="t('addRoute.apiFormatPlaceholder')"
           @update:value="onFormatChange"
         />
         <template #feedback>
-          <span style="color: #888; font-size: 12px;">💡 提示：选择目标格式将自动转换 API URL 和模型名</span>
+          <span style="color: #888; font-size: 12px;">{{ t('addRoute.apiFormatTip') }}</span>
         </template>
       </n-form-item>
     </n-form>
 
     <template #footer>
       <n-space justify="end">
-        <n-button @click="closeModal">取消</n-button>
+        <n-button @click="closeModal">{{ t('addRoute.cancel') }}</n-button>
         <n-button type="primary" @click="handleSubmit" :loading="submitting">
-          添加
+          {{ t('addRoute.add') }}
         </n-button>
       </n-space>
     </template>
@@ -77,12 +77,12 @@
   <n-modal
     v-model:show="showModelSelectModal"
     preset="card"
-    title="🎯 选择模型"
+    :title="'🎯 ' + t('addRoute.selectModel')"
     style="width: 800px; max-height: 600px;"
   >
     <n-input
       v-model:value="modelSearchKeyword"
-      placeholder="🔍 搜索模型名称..."
+      :placeholder="t('addRoute.searchModel')"
       clearable
       style="margin-bottom: 16px;"
     />
@@ -109,7 +109,7 @@
                 {{ getModelProvider(model) }}
               </n-tag>
               <n-text depth="3" style="font-size: 12px;">
-                点击选择此模型
+                {{ t('addRoute.clickToSelect') }}
               </n-text>
             </n-space>
           </n-card>
@@ -117,14 +117,14 @@
       </n-grid>
       <n-empty
         v-if="filteredModels.length === 0"
-        description="未找到匹配的模型"
+        :description="t('addRoute.noModelFound')"
         style="margin: 60px 0;"
       />
     </n-scrollbar>
     <template #footer>
       <n-space justify="space-between" align="center">
-        <n-text depth="3">共 {{ fetchedModels.length }} 个模型</n-text>
-        <n-button @click="showModelSelectModal = false">关闭</n-button>
+        <n-text depth="3">{{ t('addRoute.totalModels', { count: fetchedModels.length }) }}</n-text>
+        <n-button @click="showModelSelectModal = false">{{ t('addRoute.close') }}</n-button>
       </n-space>
     </template>
   </n-modal>
@@ -132,7 +132,10 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { NTag } from 'naive-ui'
+
+const { t } = useI18n()
 
 // Props
 const props = defineProps({
@@ -164,20 +167,20 @@ const formModel = ref({
   format: 'openai', // 默认格式
 })
 
-// Form rules
-const formRules = {
-  name: { required: true, message: '请输入路由名称' },
-  model: { required: true, message: '请输入模型 ID' },
-  apiUrl: { required: true, message: '请输入 API URL' },
-  format: { required: true, message: '请选择 API 格式' },
-}
+// Form rules (computed for i18n)
+const formRules = computed(() => ({
+  name: { required: true, message: t('addRoute.routeNamePlaceholder') },
+  model: { required: true, message: t('addRoute.modelIdPlaceholder') },
+  apiUrl: { required: true, message: t('addRoute.apiUrlPlaceholder') },
+  format: { required: true, message: t('addRoute.apiFormatPlaceholder') },
+}))
 
-// Format options
-const formatOptions = [
-  { label: 'OpenAI 格式', value: 'openai' },
-  { label: 'Anthropic Claude 格式', value: 'claude' },
-  { label: 'Google Gemini 格式 [暂不支持]', value: 'gemini', disabled: true },
-]
+// Format options (computed for i18n)
+const formatOptions = computed(() => [
+  { label: t('addRoute.openaiFormat'), value: 'openai' },
+  { label: t('addRoute.claudeFormat'), value: 'claude' },
+  { label: t('addRoute.geminiFormat'), value: 'gemini', disabled: true },
+])
 
 // Format conversion state
 const showFormatConversion = ref(false)
@@ -236,13 +239,13 @@ const cleanApiUrl = () => {
 
 const fetchModels = async () => {
   if (!formModel.value.apiUrl) {
-    window.$message?.warning('请先输入 API URL')
+    window.$message?.warning(t('addRoute.enterApiUrlFirst'))
     return
   }
 
   // 检查 Wails 运行时
   if (!window.go || !window.go.main || !window.go.main.App) {
-    window.$message?.error('Wails 运行时未就绪，请使用编译后的 exe 或 wails dev')
+    window.$message?.error(t('addRoute.wailsNotReady'))
     return
   }
 
@@ -255,7 +258,7 @@ const fetchModels = async () => {
     fetchedModels.value = models
     showModelSelectModal.value = true
   } catch (error) {
-    window.$message?.error('获取模型列表失败: ' + error)
+    window.$message?.error(t('addRoute.fetchFailed') + ': ' + error)
   } finally {
     fetchingModels.value = false
   }
@@ -265,7 +268,7 @@ const selectModel = (model) => {
   formModel.value.model = model
   showModelSelectModal.value = false
   modelSearchKeyword.value = '' // 清空搜索
-  window.$message?.success('已选择模型: ' + model)
+  window.$message?.success(t('addRoute.modelSelected') + ': ' + model)
   // 触发格式转换预览
   updateFormatConversion()
 }
@@ -395,7 +398,7 @@ const getDefaultModel = (format) => {
 
 const handleSubmit = async () => {
   if (!window.go || !window.go.main || !window.go.main.App) {
-    window.$message?.error('Wails 运行时未就绪')
+    window.$message?.error(t('addRoute.wailsNotReady'))
     return
   }
 
@@ -415,7 +418,7 @@ const handleSubmit = async () => {
       formModel.value.format
     )
 
-    window.$message?.success('路由已添加')
+    window.$message?.success(t('addRoute.routeAdded'))
     emit('route-added')
     closeModal()
   } catch (error) {
@@ -423,7 +426,7 @@ const handleSubmit = async () => {
       // 表单验证错误
       return
     }
-    window.$message?.error('操作失败: ' + error)
+    window.$message?.error(t('addRoute.operationFailed') + ': ' + error)
   } finally {
     submitting.value = false
   }
@@ -442,7 +445,7 @@ const getModelProvider = (model) => {
   if (lowerModel.includes('spark') || lowerModel.includes('讯飞')) return '讯飞'
   if (lowerModel.includes('llama')) return 'Meta'
   if (lowerModel.includes('mistral')) return 'Mistral'
-  return '其他'
+  return t('common.other')
 }
 
 // 根据提供商返回标签颜色
