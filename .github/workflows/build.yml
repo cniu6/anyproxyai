@@ -12,12 +12,68 @@ on:
       - main
       - master
   workflow_dispatch:
-  # 提交信息以 package( 开头时触发构建
-  # 例如: package(release): v1.0.0
-  # 例如: package(build): 修复构建问题
 
 jobs:
+  # 检查是否需要构建
+  check-build:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      should_release: ${{ steps.check.outputs.should_release }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+      release_body: ${{ steps.check.outputs.release_body }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check commit message for build triggers
+        id: check
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          echo "Commit message: $COMMIT_MSG"
+          
+          # 默认值
+          SHOULD_BUILD="false"
+          SHOULD_RELEASE="false"
+          RELEASE_TAG=""
+          RELEASE_BODY=""
+          
+          # 检查是否是 tag 推送
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            SHOULD_BUILD="true"
+            SHOULD_RELEASE="true"
+            RELEASE_TAG="${{ github.ref_name }}"
+            RELEASE_BODY="Release ${RELEASE_TAG}"
+          # 检查 tag(xxx): message 格式
+          elif [[ "$COMMIT_MSG" =~ ^tag\(([^)]+)\):(.*)$ ]]; then
+            SHOULD_BUILD="true"
+            SHOULD_RELEASE="true"
+            RELEASE_TAG="${BASH_REMATCH[1]}"
+            RELEASE_BODY="${BASH_REMATCH[2]}"
+            # 去除前后空格
+            RELEASE_BODY=$(echo "$RELEASE_BODY" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          # 检查 package( 开头
+          elif [[ "$COMMIT_MSG" =~ ^package\( ]]; then
+            SHOULD_BUILD="true"
+          # 检查是否是 workflow_dispatch 或 PR
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            SHOULD_BUILD="true"
+          fi
+          
+          echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "should_release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+          echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+          echo "release_body=$RELEASE_BODY" >> $GITHUB_OUTPUT
+          
+          echo "Should build: $SHOULD_BUILD"
+          echo "Should release: $SHOULD_RELEASE"
+          echo "Release tag: $RELEASE_TAG"
+          echo "Release body: $RELEASE_BODY"
+
   build-windows:
+    needs: check-build
+    if: needs.check-build.outputs.should_build == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +82,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: true
+          cache-dependency-path: go.sum
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
       
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
@@ -57,6 +117,8 @@ jobs:
           path: build/bin/anyproxyai-windows-arm64.exe
 
   build-linux-amd64:
+    needs: check-build
+    if: needs.check-build.outputs.should_build == 'true'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -65,11 +127,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: true
+          cache-dependency-path: go.sum
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
       
       - name: Install Linux dependencies
         run: |
@@ -88,10 +154,12 @@ jobs:
       - name: Upload Linux amd64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-amd64-build
+          name: anyproxyai-linux-amd64
           path: build/bin/anyproxyai-linux-amd64
 
   build-linux-arm64:
+    needs: check-build
+    if: needs.check-build.outputs.should_build == 'true'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -100,11 +168,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: true
+          cache-dependency-path: go.sum
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
       
       - name: Install cross-compile dependencies
         run: |
@@ -136,10 +208,12 @@ jobs:
       - name: Upload Linux arm64 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-arm64-build
+          name: anyproxyai-linux-arm64
           path: build/bin/anyproxyai-linux-arm64
 
   build-macos:
+    needs: check-build
+    if: needs.check-build.outputs.should_build == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,11 +222,15 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          cache: true
+          cache-dependency-path: go.sum
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
       
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
@@ -191,23 +269,38 @@ jobs:
           path: build/bin/anyproxyai-darwin-arm64.zip
 
   release:
-    needs: [build-windows, build-linux-amd64, build-linux-arm64, build-macos]
+    needs: [check-build, build-windows, build-linux-amd64, build-linux-arm64, build-macos]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: needs.check-build.outputs.should_release == 'true'
     steps:
+      - uses: actions/checkout@v4
+      
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
       
+      - name: Create and push tag (if from commit message)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && needs.check-build.outputs.release_tag != '' }}
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git tag ${{ needs.check-build.outputs.release_tag }}
+          git push origin ${{ needs.check-build.outputs.release_tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ needs.check-build.outputs.release_tag || github.ref_name }}
+          name: ${{ needs.check-build.outputs.release_tag || github.ref_name }}
+          body: ${{ needs.check-build.outputs.release_body || format('Release {0}', github.ref_name) }}
           files: |
             artifacts/anyproxyai-windows-amd64/*
             artifacts/anyproxyai-windows-arm64/*
-            artifacts/linux-amd64-build/*
-            artifacts/linux-arm64-build/*
+            artifacts/anyproxyai-linux-amd64/*
+            artifacts/anyproxyai-linux-arm64/*
             artifacts/anyproxyai-darwin-amd64/*
             artifacts/anyproxyai-darwin-arm64/*
         env:

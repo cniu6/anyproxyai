@@ -333,18 +333,35 @@ This project uses GitHub Actions for automated multi-platform builds.
 
 ### Trigger Build
 
-Builds are triggered automatically when:
-- Push to `main` or `master` branch
-- Create a tag starting with `v` (e.g., `v1.0.0`)
-- Pull request to `main` or `master`
-- Manual trigger via workflow_dispatch
+Builds are triggered in the following ways:
 
-**💡 Tip: Use commit messages starting with `package(` to indicate build-related changes:**
+| Trigger | Build | Release | Example |
+|---------|-------|---------|---------|
+| `package(...)` commit | ✅ | ❌ | `git commit -m "package(build): fix issue"` |
+| `tag(vX.X.X): message` commit | ✅ | ✅ | `git commit -m "tag(v1.0.0): Initial release"` |
+| Push tag `v*` | ✅ | ✅ | `git tag v1.0.0 && git push origin v1.0.0` |
+| Pull Request | ✅ | ❌ | PR to main/master |
+| Manual trigger | ✅ | ❌ | workflow_dispatch |
+
+### Quick Release (Recommended)
+
+Use `tag(version): description` format in your commit message to automatically build, create tag, and publish release:
+
 ```bash
-# Examples (use one of these formats):
-git commit -m "package(release): v1.0.0"
-# or
+# This will: build all platforms → create tag v1.0.0 → publish release with description
+git commit -m "tag(v1.0.0): Initial release with multi-format API support"
+git push origin main
+```
+
+The release description will be automatically filled with the text after the colon.
+
+### Build Only (No Release)
+
+Use `package(...)` prefix for build-only commits:
+
+```bash
 git commit -m "package(build): fix linux arm64 build"
+git push origin main
 ```
 
 ### Download Artifacts
@@ -358,14 +375,6 @@ git commit -m "package(build): fix linux arm64 build"
    - `anyproxyai-linux-arm64`
    - `anyproxyai-darwin-amd64`
    - `anyproxyai-darwin-arm64`
-
-### Create Release
-
-Tag a version to automatically create a GitHub Release:
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
 
 ## ❓ FAQ
 

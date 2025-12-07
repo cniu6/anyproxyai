@@ -497,7 +497,7 @@
 
                   <n-space align="center">
                     <n-icon size="20"><InformationCircleIcon /></n-icon>
-                    <n-text>{{ t('settings.version') }}: v1.0.1</n-text>
+                    <n-text>{{ t('settings.version') }}: v1.0.2</n-text>
                   </n-space>
 
                   <n-space align="center">
