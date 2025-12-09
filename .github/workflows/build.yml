@@ -180,9 +180,9 @@ jobs:
               <key>CFBundleDisplayName</key>
               <string>AnyProxyAi</string>
               <key>CFBundleVersion</key>
-              <string>2.0.1</string>
+              <string>2.0.2</string>
               <key>CFBundleShortVersionString</key>
-              <string>2.0.1</string>
+              <string>2.0.2</string>
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>LSMinimumSystemVersion</key>
