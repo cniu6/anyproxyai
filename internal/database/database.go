@@ -10,16 +10,18 @@ import (
 
 // ModelRoute 模型路由表结构
 type ModelRoute struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Model     string    `json:"model"`
-	APIUrl    string    `json:"api_url"`
-	APIKey    string    `json:"api_key"`
-	Group     string    `json:"group"`
-	Format    string    `json:"format"`    // 新增：格式类型 (openai, claude, gemini)
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID               int64     `json:"id"`
+	Name             string    `json:"name"`
+	Model            string    `json:"model"`
+	APIUrl           string    `json:"api_url"`
+	APIKey           string    `json:"api_key"`
+	Group            string    `json:"group"`
+	Format           string    `json:"format"`    // 新增：格式类型 (openai, claude, gemini)
+	Enabled          bool      `json:"enabled"`
+	TargetRouteID    int64     `json:"target_route_id"`    // 转发目标路由ID，0表示不转发
+	ForwardingEnabled bool     `json:"forwarding_enabled"` // 转发开关，true表示启用转发
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // RequestLog 请求日志表结构
@@ -62,6 +64,8 @@ func createTables(db *sql.DB) error {
 		"group" TEXT,
 		format TEXT DEFAULT 'openai',
 		enabled INTEGER DEFAULT 1,
+		target_route_id INTEGER DEFAULT 0,
+		forwarding_enabled INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -100,6 +104,20 @@ func createTables(db *sql.DB) error {
 	`
 	// 忽略错误，因为列可能已经存在
 	db.Exec(migration)
+
+	// 添加 target_route_id 列（如果不存在）- 数据库迁移
+	targetRouteMigration := `
+	ALTER TABLE model_routes ADD COLUMN target_route_id INTEGER DEFAULT 0;
+	`
+	// 忽略错误，因为列可能已经存在
+	db.Exec(targetRouteMigration)
+
+	// 添加 forwarding_enabled 列（如果不存在）- 数据库迁移
+	forwardingEnabledMigration := `
+	ALTER TABLE model_routes ADD COLUMN forwarding_enabled INTEGER DEFAULT 0;
+	`
+	// 忽略错误，因为列可能已经存在
+	db.Exec(forwardingEnabledMigration)
 
 	// 添加唯一约束 (name, model) - 组合键
 	uniqueConstraintMigration := `

@@ -50,7 +50,7 @@ func (s *ProxyService) getRedirectRoute() (*database.ModelRoute, error) {
 	if s.config.RedirectTargetModel == "" {
 		return nil, fmt.Errorf("redirect target model not configured")
 	}
-	return s.routeService.GetRouteByModel(s.config.RedirectTargetModel)
+	return s.routeService.GetRouteByForwarding(s.config.RedirectTargetModel)
 }
 
 // extractModelFromRequest 从请求的模型名中提取原始模型名
@@ -122,13 +122,13 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			availableModels, _ := s.routeService.GetAvailableModels()
 			return nil, http.StatusNotFound, fmt.Errorf("model '%s' not found in route list. Available models: %v", model, availableModels)
 		}
 		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
-		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		// route.Model 已经被 GetRouteByForwarding 设置为原始模型名
 		if route.Model != model {
 			reqData["model"] = route.Model
 			requestBody, _ = json.Marshal(reqData)
@@ -311,7 +311,7 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			// 检查是否是"模型未找到"错误
 			if strings.Contains(err.Error(), "model not found") {
@@ -322,7 +322,7 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
 		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
-		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		// route.Model 已经被 GetRouteByForwarding 设置为原始模型名
 		if route.Model != model {
 			reqData["model"] = route.Model
 			requestBody, _ = json.Marshal(reqData)
@@ -470,7 +470,7 @@ func (s *ProxyService) ProxyStreamRequestWithAdapter(requestBody []byte, headers
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			// 检查是否是"模型未找到"错误
 			if strings.Contains(err.Error(), "model not found") {
@@ -481,7 +481,7 @@ func (s *ProxyService) ProxyStreamRequestWithAdapter(requestBody []byte, headers
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
 		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
-		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		// route.Model 已经被 GetRouteByForwarding 设置为原始模型名
 		if route.Model != model {
 			reqData["model"] = route.Model
 			requestBody, _ = json.Marshal(reqData)
@@ -624,7 +624,7 @@ func (s *ProxyService) ProxyStreamRequestWithClaudeConversion(requestBody []byte
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			// 检查是否是"模型未找到"错误
 			if strings.Contains(err.Error(), "model not found") {
@@ -635,7 +635,7 @@ func (s *ProxyService) ProxyStreamRequestWithClaudeConversion(requestBody []byte
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
 		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
-		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		// route.Model 已经被 GetRouteByForwarding 设置为原始模型名
 		if route.Model != model {
 			reqData["model"] = route.Model
 			requestBody, _ = json.Marshal(reqData)
@@ -722,7 +722,7 @@ func (s *ProxyService) ProxyAnthropicRequest(requestBody []byte, headers map[str
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			availableModels, _ := s.routeService.GetAvailableModels()
 			return nil, http.StatusNotFound, fmt.Errorf("model '%s' not found in route list. Available models: %v", model, availableModels)
@@ -890,7 +890,7 @@ func (s *ProxyService) ProxyAnthropicStreamRequest(requestBody []byte, headers m
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			// 检查是否是"模型未找到"错误
 			if strings.Contains(err.Error(), "model not found") {
@@ -901,7 +901,7 @@ func (s *ProxyService) ProxyAnthropicStreamRequest(requestBody []byte, headers m
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
 		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
-		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		// route.Model 已经被 GetRouteByForwarding 设置为原始模型名
 		if route.Model != model {
 			reqData["model"] = route.Model
 			requestBody, _ = json.Marshal(reqData)
@@ -2053,7 +2053,7 @@ func (s *ProxyService) ProxyGeminiRequest(requestBody []byte, headers map[string
 		reqData["model"] = model
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			availableModels, _ := s.routeService.GetAvailableModels()
 			return nil, http.StatusNotFound, fmt.Errorf("model '%s' not found in route list. Available models: %v", model, availableModels)
@@ -2225,7 +2225,7 @@ func (s *ProxyService) ProxyGeminiStreamRequest(requestBody []byte, headers map[
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			availableModels, _ := s.routeService.GetAvailableModels()
 			return fmt.Errorf("model '%s' not found in route list. Available models: %v", model, availableModels)
@@ -2631,7 +2631,7 @@ func (s *ProxyService) ProxyClaudeCodeRequest(requestBody []byte, headers map[st
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			availableModels, _ := s.routeService.GetAvailableModels()
 			return nil, http.StatusNotFound, fmt.Errorf("model '%s' not found in route list. Available models: %v", model, availableModels)
@@ -2819,7 +2819,7 @@ func (s *ProxyService) ProxyClaudeCodeStreamRequest(requestBody []byte, headers 
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
-		route, err = s.routeService.GetRouteByModel(model)
+		route, err = s.routeService.GetRouteByForwarding(model)
 		if err != nil {
 			if strings.Contains(err.Error(), "model not found") {
 				availableModels, _ := s.routeService.GetAvailableModels()

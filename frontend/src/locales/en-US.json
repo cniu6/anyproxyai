@@ -3,6 +3,7 @@
     "home": "Home",
     "models": "Models",
     "stats": "Statistics",
+    "forwarding": "Route Forwarding",
     "settings": "Settings",
     "addRoute": "Add Route"
   },
@@ -69,6 +70,29 @@
     "cancel": "Cancel",
     "routeUpdated": "Route updated",
     "updateFailed": "Update failed"
+  },
+  "forwarding": {
+    "title": "Route Forwarding Management",
+    "sourceModel": "Source Model",
+    "targetRoute": "Target Route",
+    "targetRouteName": "Target Route Name",
+    "targetModel": "Target Model",
+    "status": "Status",
+    "sync": "Sync Routes",
+    "selectTargetRoute": "Select target route",
+    "selectRouteName": "Select route name",
+    "selectTargetModel": "Select target model",
+    "self": "(not forwarded)",
+    "editRule": "Edit forwarding rule",
+    "enabled": "Forwarding enabled",
+    "disabled": "Forwarding disabled",
+    "synced": "Synced {count} route mappings",
+    "unknown": "Unknown",
+    "masterSwitch": "Master Switch",
+    "allEnabled": "All forwarding enabled",
+    "allDisabled": "All forwarding disabled",
+    "clearForwarding": "Clear Forwarding",
+    "clearedForwarding": "Forwarding configuration cleared"
   },
   "deleteRoute": {
     "title": "Confirm Delete",
@@ -225,7 +249,11 @@
     "languageChanged": "Language changed",
     "redirectConfigSaved": "Redirect config saved",
     "redirectConfigFailed": "Failed to save redirect config",
-    "restartFailed": "Restart failed"
+    "restartFailed": "Restart failed",
+    "loadFailed": "Failed to load",
+    "syncFailed": "Sync failed",
+    "saved": "Saved",
+    "saveFailed": "Save failed"
   },
   "common": {
     "loading": "Loading...",
@@ -235,7 +263,12 @@
     "warning": "Warning",
     "info": "Info",
     "copy": "Copy",
-    "other": "Other"
+    "other": "Other",
+    "actions": "Actions",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "refresh": "Refresh"
   },
   "addStrategy": {
     "random": "Random",

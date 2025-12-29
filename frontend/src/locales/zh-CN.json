@@ -3,6 +3,7 @@
     "home": "主页",
     "models": "模型列表",
     "stats": "使用状态",
+    "forwarding": "路由转发",
     "settings": "设置",
     "addRoute": "添加路由"
   },
@@ -69,6 +70,29 @@
     "cancel": "取消",
     "routeUpdated": "路由已更新",
     "updateFailed": "更新失败"
+  },
+  "forwarding": {
+    "title": "路由转发管理",
+    "sourceModel": "源模型",
+    "targetRoute": "目标路由",
+    "targetRouteName": "目标路由名",
+    "targetModel": "目标模型",
+    "status": "状态",
+    "sync": "同步路由",
+    "selectTargetRoute": "选择目标路由",
+    "selectRouteName": "选择路由名",
+    "selectTargetModel": "选择目标模型",
+    "self": "（未转发）",
+    "editRule": "编辑转发规则",
+    "enabled": "转发已启用",
+    "disabled": "转发已禁用",
+    "synced": "已同步 {count} 条路由映射",
+    "unknown": "未知",
+    "masterSwitch": "总开关",
+    "allEnabled": "已启用所有转发",
+    "allDisabled": "已禁用所有转发",
+    "clearForwarding": "清除转发",
+    "clearedForwarding": "已清除转发配置"
   },
   "deleteRoute": {
     "title": "确认删除",
@@ -225,7 +249,11 @@
     "languageChanged": "语言已切换",
     "redirectConfigSaved": "重定向配置已保存",
     "redirectConfigFailed": "保存重定向配置失败",
-    "restartFailed": "重启失败"
+    "restartFailed": "重启失败",
+    "loadFailed": "加载失败",
+    "syncFailed": "同步失败",
+    "saved": "已保存",
+    "saveFailed": "保存失败"
   },
   "common": {
     "loading": "加载中...",
@@ -235,7 +263,12 @@
     "warning": "警告",
     "info": "信息",
     "copy": "复制",
-    "other": "其他"
+    "other": "其他",
+    "actions": "操作",
+    "edit": "编辑",
+    "save": "保存",
+    "cancel": "取消",
+    "refresh": "刷新"
   },
   "addStrategy": {
     "random": "随机选择",

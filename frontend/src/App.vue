@@ -272,7 +272,10 @@
         <div v-if="currentPage === 'models'">
           <n-card :title="'📋 ' + t('models.title')" :bordered="false">
             <template #header-extra>
-              <n-space>
+              <n-space align="center">
+                <n-text depth="2" style="font-size: 13px;">{{ t('forwarding.masterSwitch') }}</n-text>
+                <n-switch v-model:value="masterForwardingEnabled" @update:value="handleToggleMasterForwarding" />
+                <n-divider vertical />
                 <n-button @click="exportRoutes" type="primary" ghost>
                   <template #icon>
                     <n-icon><ArrowForwardIcon style="transform: rotate(-90deg);" /></n-icon>
@@ -611,6 +614,45 @@
             </n-space>
           </n-card>
         </div>
+
+        <!-- Edit Forwarding Modal -->
+        <n-modal v-model:show="showEditForwardingModal" preset="card" :title="'✏️ ' + t('forwarding.editRule')" style="width: 500px;">
+          <n-space vertical :size="16">
+            <n-form-item :label="t('forwarding.sourceModel')">
+              <n-input :value="editingForwardingRule?.source_model" readonly />
+            </n-form-item>
+
+            <!-- 两级选择：先选路由名，再选模型 -->
+            <n-form-item :label="t('forwarding.targetRouteName')">
+              <n-select
+                v-model:value="selectedForwardingRouteName"
+                :options="uniqueRouteNames"
+                :placeholder="t('forwarding.selectRouteName')"
+                @update:value="onRouteNameChange"
+              />
+            </n-form-item>
+
+            <n-form-item :label="t('forwarding.targetModel')">
+              <n-select
+                v-model:value="editingForwardingRule.target_route_id"
+                :options="filteredRoutesForForwarding"
+                :placeholder="t('forwarding.selectTargetModel')"
+                :disabled="!selectedForwardingRouteName"
+              />
+            </n-form-item>
+
+            <n-form-item>
+              <n-space>
+                <n-button type="primary" @click="saveForwardingRule" :loading="savingForwarding">
+                  {{ t('common.save') }}
+                </n-button>
+                <n-button @click="showEditForwardingModal = false">
+                  {{ t('common.cancel') }}
+                </n-button>
+              </n-space>
+            </n-form-item>
+          </n-space>
+        </n-modal>
       </n-layout-content>
     </n-layout>
 
@@ -756,12 +798,14 @@ import {
   Home as HomeIcon,
   List as ListIcon,
   BarChart as BarChartIcon,
+  SwapHorizontal as FlowIcon,
   Settings as SettingsIcon,
   LogoGithub as LogoGithubIcon,
   InformationCircle as InformationCircleIcon,
   Code as CodeIcon,
   Trash as TrashIcon,
   Language as LanguageIcon,
+  CloseOutline as ClearIcon,
 } from '@vicons/ionicons5'
 import AddRouteModal from './components/AddRouteModal.vue'
 import EditRouteModal from './components/EditRouteModal.vue'
@@ -923,6 +967,210 @@ const toggleEnableFileLog = async (enabled) => {
   } catch (error) {
     showMessage("error", t('messages.settingFailed') + ': ' + error)
     settings.value.enableFileLog = !enabled // 恢复状态
+  }
+}
+
+// ========== 路由转发相关 ==========
+
+// 转发编辑状态
+const showEditForwardingModal = ref(false)
+const savingForwarding = ref(false)
+const editingForwardingRule = ref({
+  route_id: null,
+  source_model: '',
+  target_route_id: null,
+})
+
+// 总开关状态
+const masterForwardingEnabled = ref(true)
+
+// 切换总开关
+const handleToggleMasterForwarding = async (enabled) => {
+  try {
+    // 获取所有路由
+    const routesData = await window.go.main.App.GetRoutes()
+
+    // 顺序更新所有路由以避免 SQLite 数据库锁定
+    for (const route of routesData) {
+      const forwardingValue = enabled && route.target_route_id > 0 ? '1' : '0'
+      const groupWithForwarding = route.target_route_id > 0
+        ? `${route.group || ''}|${route.target_route_id}|${forwardingValue}`
+        : (route.group || '')
+
+      await window.go.main.App.UpdateRoute(
+        route.id,
+        route.name,
+        route.model,
+        route.api_url,
+        route.api_key,
+        groupWithForwarding,
+        route.format
+      )
+    }
+
+    showMessage("success", enabled ? t('forwarding.allEnabled') : t('forwarding.allDisabled'))
+    await loadRoutes()
+  } catch (error) {
+    showMessage("error", t('messages.saveFailed') + ': ' + error)
+  }
+}
+const availableRoutesForForwarding = ref([]) // 存储完整的路由数据
+const selectedForwardingRouteName = ref(null) // 选中的路由名
+
+// 计算去重的路由名列表
+const uniqueRouteNames = computed(() => {
+  const names = [...new Set(availableRoutesForForwarding.value.map(r => r.name))]
+  return names.map(name => ({ label: name, value: name }))
+})
+
+// 根据选中的路由名过滤模型列表
+const filteredRoutesForForwarding = computed(() => {
+  if (!selectedForwardingRouteName.value) return []
+  return availableRoutesForForwarding.value
+    .filter(r => r.name === selectedForwardingRouteName.value && r.id !== editingForwardingRule.value.route_id)
+    .map(route => ({
+      label: `${route.name} (${route.model})`,
+      value: route.id,
+      name: route.name,
+      model: route.model
+    }))
+})
+
+// 加载可用的路由（用于转发选择）
+const loadAvailableRoutesForForwarding = async () => {
+  try {
+    if (!window.go || !window.go.main || !window.go.main.App) {
+      return
+    }
+    const data = await window.go.main.App.GetRoutes()
+    availableRoutesForForwarding.value = data || []
+  } catch (error) {
+    console.error('Failed to load routes for forwarding:', error)
+  }
+}
+
+// 路由名改变时的处理
+const onRouteNameChange = (value) => {
+  // 清空已选择的模型
+  editingForwardingRule.value.target_route_id = null
+}
+
+// 打开编辑转发规则弹窗
+const openEditForwardingModal = (rule) => {
+  editingForwardingRule.value = {
+    route_id: rule.id,
+    source_model: rule.source_model,
+    target_route_id: rule.target_route_id || 0,
+  }
+
+  // 初始化路由名选择
+  if (rule.target_route_id > 0) {
+    const targetRoute = availableRoutesForForwarding.value.find(r => r.id === rule.target_route_id)
+    if (targetRoute) {
+      selectedForwardingRouteName.value = targetRoute.name
+    }
+  } else {
+    selectedForwardingRouteName.value = null
+  }
+
+  showEditForwardingModal.value = true
+}
+
+// 保存转发规则
+const saveForwardingRule = async () => {
+  savingForwarding.value = true
+  try {
+    // 获取完整的路由列表来找到要更新的路由
+    const routesData = await window.go.main.App.GetRoutes()
+    const route = routesData.find(r => r.id === editingForwardingRule.value.route_id)
+    if (!route) {
+      throw new Error('Route not found')
+    }
+
+    // 使用现有的 UpdateRoute 方法，将目标路由ID附加到 group 参数中
+    const groupWithForwarding = editingForwardingRule.value.target_route_id > 0
+      ? `${route.group || ''}|${editingForwardingRule.value.target_route_id}|1`
+      : (route.group || '')
+
+    await window.go.main.App.UpdateRoute(
+      route.id,
+      route.name,
+      route.model,
+      route.api_url,
+      route.api_key,
+      groupWithForwarding,
+      route.format
+    )
+
+    showMessage("success", t('messages.saved'))
+    showEditForwardingModal.value = false
+    await loadRoutes()
+  } catch (error) {
+    showMessage("error", t('messages.saveFailed') + ': ' + error)
+  } finally {
+    savingForwarding.value = false
+  }
+}
+
+// 切换单个路由的转发开关
+const handleToggleForwarding = async (routeId, enabled) => {
+  try {
+    // 获取完整的路由列表来找到要更新的路由
+    const routesData = await window.go.main.App.GetRoutes()
+    const route = routesData.find(r => r.id === routeId)
+    if (!route) {
+      throw new Error('Route not found')
+    }
+
+    // 使用现有的 UpdateRoute 方法，通过 group 参数传递转发启用状态
+    // 格式: group|targetRouteId|forwardingEnabled (0=disabled, 1=enabled)
+    const forwardingValue = enabled ? '1' : '0'
+    const groupWithForwarding = route.target_route_id > 0
+      ? `${route.group || ''}|${route.target_route_id}|${forwardingValue}`
+      : (route.group || '')
+
+    await window.go.main.App.UpdateRoute(
+      route.id,
+      route.name,
+      route.model,
+      route.api_url,
+      route.api_key,
+      groupWithForwarding,
+      route.format
+    )
+
+    showMessage("success", enabled ? t('forwarding.enabled') : t('forwarding.disabled'))
+    await loadRoutes()
+  } catch (error) {
+    showMessage("error", t('messages.saveFailed') + ': ' + error)
+  }
+}
+
+// 清除转发配置
+const handleClearForwarding = async (routeId) => {
+  try {
+    // 获取完整的路由列表来找到要更新的路由
+    const routesData = await window.go.main.App.GetRoutes()
+    const route = routesData.find(r => r.id === routeId)
+    if (!route) {
+      throw new Error('Route not found')
+    }
+
+    // 清除转发配置：将 target_route_id 设置为 0
+    await window.go.main.App.UpdateRoute(
+      route.id,
+      route.name,
+      route.model,
+      route.api_url,
+      route.api_key,
+      route.group || '',  // 清除转发配置，只保留原始 group
+      route.format
+    )
+
+    showMessage("success", t('forwarding.clearedForwarding'))
+    await loadRoutes()
+  } catch (error) {
+    showMessage("error", t('messages.saveFailed') + ': ' + error)
   }
 }
 
@@ -1474,7 +1722,7 @@ const columns = [
   },
 ]
 
-// Table columns for models page (with redirect button)
+// Table columns for models page (with forwarding column and edit button)
 const modelsPageColumns = computed(() => [
   {
     title: 'ID',
@@ -1494,10 +1742,29 @@ const modelsPageColumns = computed(() => [
     key: 'model',
     width: 200,
     render(row) {
-      // 直接显示单个模型（不再分割逗号）
       return h(NTag, { type: 'info', size: 'small' }, {
         default: () => row.model
       })
+    },
+  },
+  {
+    title: t('forwarding.targetRoute'),
+    key: 'target_route',
+    width: 200,
+    render(row) {
+      if (!row.target_route_id || row.target_route_id === 0) {
+        return h('span', { style: { color: '#999' } }, '-')
+      }
+      // 查找目标路由
+      const targetRoute = routes.value.find(r => r.id === row.target_route_id)
+      if (!targetRoute) {
+        return h('span', { style: { color: '#f0a020' } }, t('forwarding.unknown'))
+      }
+      // 检查是否是自我转发
+      if (row.target_route_id === row.id) {
+        return h(NTag, { type: 'default', size: 'small' }, { default: () => t('forwarding.self') })
+      }
+      return h('span', {}, `${targetRoute.name} (${targetRoute.model})`)
     },
   },
   {
@@ -1510,17 +1777,56 @@ const modelsPageColumns = computed(() => [
   {
     title: t('models.actions'),
     key: 'actions',
-    width: 100,
+    width: 200,
     render(row) {
-      return h(
-        NButton,
-        {
-          size: 'small',
-          type: 'error',
-          onClick: () => handleDelete(row),
-        },
-        { default: () => t('models.delete'), icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
+      const buttons = [
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: 'primary',
+            ghost: true,
+            onClick: () => openEditForwardingModal({
+              id: row.id,
+              source_model: `${row.name}/${row.model}`,
+              target_route_id: row.target_route_id || 0,
+            }),
+          },
+          { default: () => t('common.edit'), icon: () => h(NIcon, {}, { default: () => h(EditIcon) }) }
+        ),
+      ]
+
+      // 如果配置了转发，添加清除转发按钮
+      if (row.target_route_id && row.target_route_id > 0) {
+        buttons.push(
+          h(
+            NButton,
+            {
+              size: 'small',
+              type: 'warning',
+              ghost: true,
+              onClick: () => handleClearForwarding(row.id),
+            },
+            { default: () => t('forwarding.clearForwarding'), icon: () => h(NIcon, {}, { default: () => h(ClearIcon) }) }
+          )
+        )
+      }
+
+      buttons.push(
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: 'error',
+            onClick: () => handleDelete(row),
+          },
+          { default: () => t('models.delete'), icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
+        )
       )
+
+      return h(NSpace, {}, {
+        default: () => buttons
+      })
     },
   },
 ])
@@ -1889,6 +2195,7 @@ onMounted(async () => {
   loadDailyStats()
   loadHourlyStats()
   loadModelRanking()
+  loadAvailableRoutesForForwarding()
 
   // 检查是否需要数据迁移
   checkDataMigration()

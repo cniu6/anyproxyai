@@ -15,16 +15,18 @@ import (
 
 // RouteInfo 路由信息结构体（用于前端）
 type RouteInfo struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	Model   string `json:"model"`
-	APIUrl  string `json:"api_url"`
-	APIKey  string `json:"api_key"`
-	Group   string `json:"group"`
-	Format  string `json:"format"`
-	Enabled bool   `json:"enabled"`
-	Created string `json:"created"`
-	Updated string `json:"updated"`
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	Model             string `json:"model"`
+	APIUrl            string `json:"api_url"`
+	APIKey            string `json:"api_key"`
+	Group             string `json:"group"`
+	Format            string `json:"format"`
+	Enabled           bool   `json:"enabled"`
+	TargetRouteID     int64  `json:"target_route_id"`
+	ForwardingEnabled bool   `json:"forwarding_enabled"`
+	Created           string `json:"created"`
+	Updated           string `json:"updated"`
 }
 
 // StatsInfo 统计信息结构体
@@ -132,16 +134,18 @@ func (a *AppService) GetRoutes() ([]RouteInfo, error) {
 	result := make([]RouteInfo, len(routes))
 	for i, route := range routes {
 		result[i] = RouteInfo{
-			ID:      route.ID,
-			Name:    route.Name,
-			Model:   route.Model,
-			APIUrl:  route.APIUrl,
-			APIKey:  route.APIKey,
-			Group:   route.Group,
-			Format:  route.Format,
-			Enabled: route.Enabled,
-			Created: route.CreatedAt.Format("2006-01-02 15:04:05"),
-			Updated: route.UpdatedAt.Format("2006-01-02 15:04:05"),
+			ID:                route.ID,
+			Name:              route.Name,
+			Model:             route.Model,
+			APIUrl:            route.APIUrl,
+			APIKey:            route.APIKey,
+			Group:             route.Group,
+			Format:            route.Format,
+			Enabled:           route.Enabled,
+			TargetRouteID:     route.TargetRouteID,
+			ForwardingEnabled: route.ForwardingEnabled,
+			Created:           route.CreatedAt.Format("2006-01-02 15:04:05"),
+			Updated:           route.UpdatedAt.Format("2006-01-02 15:04:05"),
 		}
 	}
 	return result, nil
@@ -175,6 +179,21 @@ func (a *AppService) DeleteRoute(id int64) error {
 // DeleteRouteByKey 通过组合键 (name, model) 删除路由
 func (a *AppService) DeleteRouteByKey(name, model string) error {
 	return a.RouteService.DeleteRouteByKey(name, model)
+}
+
+// UpdateRouteForwarding 更新路由的转发目标
+func (a *AppService) UpdateRouteForwarding(routeID int64, targetRouteID int64) error {
+	return a.RouteService.UpdateRouteForwarding(routeID, targetRouteID)
+}
+
+// ToggleRouteForwarding 切换路由的转发开关
+func (a *AppService) ToggleRouteForwarding(routeID int64, enabled bool) error {
+	return a.RouteService.ToggleRouteForwarding(routeID, enabled)
+}
+
+// ToggleAllForwarding 切换所有路由的转发开关（总开关）
+func (a *AppService) ToggleAllForwarding(enabled bool) error {
+	return a.RouteService.ToggleAllForwarding(enabled)
 }
 
 // GetStats 获取统计信息
@@ -409,3 +428,4 @@ func (a *AppService) ClearAllRoutes() error {
 func (a *AppService) HasMultiModelRoutes() (bool, error) {
 	return a.RouteService.HasMultiModelRoutes()
 }
+

@@ -22,7 +22,8 @@ func NewRouteService(db *sql.DB) *RouteService {
 
 // GetAllRoutes 获取所有路由
 func (s *RouteService) GetAllRoutes() ([]database.ModelRoute, error) {
-	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled, created_at, updated_at
+	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
+	          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
 	          FROM model_routes ORDER BY created_at DESC`
 
 	rows, err := s.db.Query(query)
@@ -35,7 +36,7 @@ func (s *RouteService) GetAllRoutes() ([]database.ModelRoute, error) {
 	for rows.Next() {
 		var route database.ModelRoute
 		err := rows.Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl, &route.APIKey,
-			&route.Group, &route.Format, &route.Enabled, &route.CreatedAt, &route.UpdatedAt)
+			&route.Group, &route.Format, &route.Enabled, &route.TargetRouteID, &route.ForwardingEnabled, &route.CreatedAt, &route.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -62,10 +63,11 @@ func (s *RouteService) GetRouteByModel(model string) (*database.ModelRoute, erro
 			log.Infof("Looking up route by name: %s (original model: %s)", routeName, originalModel)
 
 			// 通过路由名查询，并验证该路由是否包含请求的模型
-			query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled, created_at, updated_at
+			query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
+			          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
 			          FROM model_routes WHERE name = ? AND enabled = 1 ORDER BY RANDOM() LIMIT 1`
 			err = s.db.QueryRow(query, routeName).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
-				&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.CreatedAt, &route.UpdatedAt)
+				&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.TargetRouteID, &route.ForwardingEnabled, &route.CreatedAt, &route.UpdatedAt)
 
 			if err == nil {
 				// 找到路由后，临时替换Model字段为原始模型名（用于后续转发）
@@ -77,11 +79,12 @@ func (s *RouteService) GetRouteByModel(model string) (*database.ModelRoute, erro
 	}
 
 	// 如果不是带前缀的格式，或者通过路由名查找失败，则使用原始逻辑
-	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled, created_at, updated_at
+	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
+	          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
 	          FROM model_routes WHERE model = ? AND enabled = 1 ORDER BY RANDOM() LIMIT 1`
 
 	err = s.db.QueryRow(query, model).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
-		&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.CreatedAt, &route.UpdatedAt)
+		&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.TargetRouteID, &route.ForwardingEnabled, &route.CreatedAt, &route.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("model not found: %s", model)
@@ -95,12 +98,13 @@ func (s *RouteService) GetRouteByModel(model string) (*database.ModelRoute, erro
 
 // GetRouteByID 根据路由ID获取路由
 func (s *RouteService) GetRouteByID(id int64) (*database.ModelRoute, error) {
-	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled, created_at, updated_at
+	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
+	          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
 	          FROM model_routes WHERE id = ? AND enabled = 1`
 
 	var route database.ModelRoute
 	err := s.db.QueryRow(query, id).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
-		&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.CreatedAt, &route.UpdatedAt)
+		&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.TargetRouteID, &route.ForwardingEnabled, &route.CreatedAt, &route.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("route not found: %d", id)
@@ -114,8 +118,8 @@ func (s *RouteService) GetRouteByID(id int64) (*database.ModelRoute, error) {
 
 // AddRoute 添加路由
 func (s *RouteService) AddRoute(name, model, apiUrl, apiKey, group, format string) error {
-	query := `INSERT INTO model_routes (name, model, api_url, api_key, "group", format, enabled, created_at, updated_at)
-	          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+	query := `INSERT INTO model_routes (name, model, api_url, api_key, "group", format, enabled, target_route_id, created_at, updated_at)
+	          VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`
 
 	now := time.Now()
 	_, err := s.db.Exec(query, name, model, apiUrl, apiKey, group, format, now, now)
@@ -130,10 +134,40 @@ func (s *RouteService) AddRoute(name, model, apiUrl, apiKey, group, format strin
 
 // UpdateRoute 更新路由
 func (s *RouteService) UpdateRoute(id int64, name, model, apiUrl, apiKey, group, format string) error {
-	query := `UPDATE model_routes SET name = ?, model = ?, api_url = ?, api_key = ?, "group" = ?, format = ?, updated_at = ?
-	          WHERE id = ?`
+	// 检查 group 字段是否包含转发目标 ID 和转发启用状态
+	// 新格式: "group|targetRouteId|forwardingEnabled" 或 "group|targetRouteId" 或 "group"
+	targetRouteID := int64(0)
+	forwardingEnabled := false
 
-	result, err := s.db.Exec(query, name, model, apiUrl, apiKey, group, format, time.Now(), id)
+	if strings.Contains(group, "|") {
+		parts := strings.Split(group, "|")
+		group = parts[0]
+		if len(parts) >= 2 {
+			fmt.Sscanf(parts[1], "%d", &targetRouteID)
+		}
+		if len(parts) >= 3 {
+			forwardingEnabled = parts[2] == "1"
+		} else if targetRouteID > 0 {
+			// 如果有 targetRouteId 但没有 forwardingEnabled，默认启用
+			forwardingEnabled = true
+		}
+	}
+
+	var query string
+	var args []interface{}
+
+	if targetRouteID > 0 {
+		query = `UPDATE model_routes SET name = ?, model = ?, api_url = ?, api_key = ?, "group" = ?, format = ?, target_route_id = ?, forwarding_enabled = ?, updated_at = ?
+		          WHERE id = ?`
+		args = []interface{}{name, model, apiUrl, apiKey, group, format, targetRouteID, forwardingEnabled, time.Now(), id}
+	} else {
+		// 清除转发配置时，同时设置 target_route_id = 0 和 forwarding_enabled = 0
+		query = `UPDATE model_routes SET name = ?, model = ?, api_url = ?, api_key = ?, "group" = ?, format = ?, target_route_id = 0, forwarding_enabled = 0, updated_at = ?
+		          WHERE id = ?`
+		args = []interface{}{name, model, apiUrl, apiKey, group, format, time.Now(), id}
+	}
+
+	result, err := s.db.Exec(query, args...)
 	if err != nil {
 		log.Errorf("Failed to update route: %v", err)
 		return err
@@ -144,7 +178,11 @@ func (s *RouteService) UpdateRoute(id int64, name, model, apiUrl, apiKey, group,
 		return fmt.Errorf("route not found: id=%d", id)
 	}
 
-	log.Infof("Route updated: id=%d", id)
+	if targetRouteID > 0 {
+		log.Infof("Route updated with forwarding: id=%d, target_route_id=%d, forwarding_enabled=%v", id, targetRouteID, forwardingEnabled)
+	} else {
+		log.Infof("Route updated: id=%d", id)
+	}
 	return nil
 }
 
@@ -170,14 +208,21 @@ func (s *RouteService) UpdateRouteByKey(oldName, oldModel, name, model, apiUrl, 
 
 // DeleteRoute 删除路由及其相关的请求日志
 func (s *RouteService) DeleteRoute(id int64) error {
-	// 先删除该路由相关的请求日志
-	_, err := s.db.Exec(`DELETE FROM request_logs WHERE route_id = ?`, id)
+	// 先清除指向该路由的转发配置
+	_, err := s.db.Exec(`UPDATE model_routes SET target_route_id = 0, forwarding_enabled = 0 WHERE target_route_id = ?`, id)
+	if err != nil {
+		log.Errorf("Failed to clear forwarding to deleted route: %v", err)
+		return err
+	}
+
+	// 删除该路由相关的请求日志
+	_, err = s.db.Exec(`DELETE FROM request_logs WHERE route_id = ?`, id)
 	if err != nil {
 		log.Errorf("Failed to delete route logs: %v", err)
 		return err
 	}
 
-	// 再删除路由
+	// 删除路由
 	query := `DELETE FROM model_routes WHERE id = ?`
 	result, err := s.db.Exec(query, id)
 	if err != nil {
@@ -207,7 +252,7 @@ func (s *RouteService) DeleteRouteByKey(name, model string) error {
 		return err
 	}
 
-	// 先删除该路由相关的请求日志
+	// 删除该路由相关的请求日志
 	_, err = s.db.Exec(`DELETE FROM request_logs WHERE route_id = ?`, id)
 	if err != nil {
 		log.Errorf("Failed to delete route logs: %v", err)
@@ -242,6 +287,66 @@ func (s *RouteService) ToggleRoute(id int64, enabled bool) error {
 	}
 
 	log.Infof("Route toggled: id=%d, enabled=%v", id, enabled)
+	return nil
+}
+
+// UpdateRouteForwarding 更新路由的转发目标
+func (s *RouteService) UpdateRouteForwarding(routeID int64, targetRouteID int64) error {
+	// 验证源路由存在
+	sourceRoute, err := s.GetRouteByID(routeID)
+	if err != nil {
+		return fmt.Errorf("source route not found: %v", err)
+	}
+
+	// 如果设置了目标路由，验证目标路由存在
+	if targetRouteID > 0 {
+		targetRoute, err := s.GetRouteByID(targetRouteID)
+		if err != nil {
+			return fmt.Errorf("target route not found: %v", err)
+		}
+		log.Infof("Updating forwarding: route %s (id=%d) -> route %s (id=%d)",
+			sourceRoute.Name, sourceRoute.ID, targetRoute.Name, targetRoute.ID)
+	} else {
+		log.Infof("Clearing forwarding: route %s (id=%d) -> no forwarding",
+			sourceRoute.Name, sourceRoute.ID)
+	}
+
+	query := `UPDATE model_routes SET target_route_id = ?, forwarding_enabled = ?, updated_at = ? WHERE id = ?`
+	// 当设置目标路由时，自动启用转发；清除目标时，禁用转发
+	forwardingEnabled := targetRouteID > 0
+	_, err = s.db.Exec(query, targetRouteID, forwardingEnabled, time.Now(), routeID)
+	if err != nil {
+		log.Errorf("Failed to update route forwarding: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// ToggleRouteForwarding 切换路由的转发开关
+func (s *RouteService) ToggleRouteForwarding(routeID int64, enabled bool) error {
+	query := `UPDATE model_routes SET forwarding_enabled = ?, updated_at = ? WHERE id = ?`
+	_, err := s.db.Exec(query, enabled, time.Now(), routeID)
+	if err != nil {
+		log.Errorf("Failed to toggle route forwarding: %v", err)
+		return err
+	}
+
+	log.Infof("Route forwarding toggled: id=%d, forwarding_enabled=%v", routeID, enabled)
+	return nil
+}
+
+// ToggleAllForwarding 切换所有路由的转发开关（总开关）
+func (s *RouteService) ToggleAllForwarding(enabled bool) error {
+	query := `UPDATE model_routes SET forwarding_enabled = ?, updated_at = ?`
+	result, err := s.db.Exec(query, enabled, time.Now())
+	if err != nil {
+		log.Errorf("Failed to toggle all forwarding: %v", err)
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	log.Infof("All forwarding toggled: affected %d routes, forwarding_enabled=%v", rows, enabled)
 	return nil
 }
 
@@ -801,8 +906,8 @@ func (s *RouteService) AddRoutes(baseName string, models []string, apiUrl, apiKe
 		// 路由名直接使用基础名称（不再拼接模型名）
 		routeName := baseName
 
-		query := `INSERT INTO model_routes (name, model, api_url, api_key, "group", format, enabled, created_at, updated_at)
-		          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+		query := `INSERT INTO model_routes (name, model, api_url, api_key, "group", format, enabled, target_route_id, created_at, updated_at)
+		          VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`
 
 		_, err := s.db.Exec(query, routeName, model, apiUrl, apiKey, group, format, now, now)
 		if err != nil {
@@ -825,3 +930,88 @@ func (s *RouteService) ClearAllRoutes() error {
 func (s *RouteService) HasMultiModelRoutes() (bool, error) {
 	return database.HasMultiModelRoutes(s.db)
 }
+
+// GetRouteByForwarding 通过路由的 target_route_id 字段获取目标路由
+// 首先检查路由的 target_route_id 字段，如果设置了且非零，并且转发已启用，则转发到目标路由
+func (s *RouteService) GetRouteByForwarding(model string) (*database.ModelRoute, error) {
+	// 首先直接查询该模型对应的路由
+	var route database.ModelRoute
+	var err error
+
+	// 检查是否是带前缀的模型名 (RouteName/ModelName)
+	if strings.Contains(model, "/") {
+		parts := strings.SplitN(model, "/", 2)
+		if len(parts) == 2 {
+			routeName := parts[0]
+			originalModel := parts[1]
+			log.Infof("Looking up route by name: %s (original model: %s)", routeName, originalModel)
+
+			// 通过路由名和模型名查询（精确匹配）
+			query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
+			          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
+			          FROM model_routes WHERE name = ? AND model = ? AND enabled = 1 LIMIT 1`
+			err = s.db.QueryRow(query, routeName, originalModel).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
+				&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.TargetRouteID, &route.ForwardingEnabled, &route.CreatedAt, &route.UpdatedAt)
+
+			if err == nil {
+				// 检查是否设置了转发目标且转发已启用
+				if route.ForwardingEnabled && route.TargetRouteID > 0 && route.TargetRouteID != route.ID {
+					// 获取目标路由
+					targetRoute, err := s.GetRouteByID(route.TargetRouteID)
+					if err != nil {
+						log.Errorf("Failed to get target route %d for model '%s': %v", route.TargetRouteID, model, err)
+						return nil, fmt.Errorf("forwarding target route not found: %d", route.TargetRouteID)
+					}
+					// 使用原始模型名记录日志
+					log.Infof("Model '%s' forwarded from route %s (id=%d) to route %s (id=%d)",
+						originalModel, routeName, route.ID, targetRoute.Name, targetRoute.ID)
+					return targetRoute, nil
+				}
+				// 没有转发设置或转发未启用，使用当前路由
+				if route.ForwardingEnabled && route.TargetRouteID > 0 {
+					log.Infof("Forwarding configured but disabled for route %s (id=%d), target_route_id=%d",
+						routeName, route.ID, route.TargetRouteID)
+				}
+				route.Model = originalModel
+				log.Infof("Found route by name: %s, using model: %s", routeName, originalModel)
+				return &route, nil
+			}
+		}
+	}
+
+	// 如果不是带前缀的格式，或者通过路由名查找失败，则按模型名查找
+	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
+	          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
+	          FROM model_routes WHERE model = ? AND enabled = 1 ORDER BY RANDOM() LIMIT 1`
+
+	err = s.db.QueryRow(query, model).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
+		&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.TargetRouteID, &route.ForwardingEnabled, &route.CreatedAt, &route.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("model not found: %s", model)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查是否设置了转发目标且转发已启用
+	if route.ForwardingEnabled && route.TargetRouteID > 0 && route.TargetRouteID != route.ID {
+		// 获取目标路由
+		targetRoute, err := s.GetRouteByID(route.TargetRouteID)
+		if err != nil {
+			log.Errorf("Failed to get target route %d for model '%s': %v", route.TargetRouteID, model, err)
+			return nil, fmt.Errorf("forwarding target route not found: %d", route.TargetRouteID)
+		}
+		log.Infof("Model '%s' forwarded from route id=%d to route %s (id=%d)",
+			model, route.ID, targetRoute.Name, targetRoute.ID)
+		return targetRoute, nil
+	}
+
+	// 没有转发设置或转发未启用，返回当前路由
+	if route.ForwardingEnabled && route.TargetRouteID > 0 {
+		log.Infof("Forwarding configured but disabled for route id=%d, target_route_id=%d",
+			route.ID, route.TargetRouteID)
+	}
+	return &route, nil
+}
+

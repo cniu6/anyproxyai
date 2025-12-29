@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -65,6 +66,15 @@ func SetupAPIRouter(cfg *config.Config, routeService *service.RouteService, prox
 		// 调试日志：打印收到的认证信息
 		log.Debugf("API Key Auth - Authorization: %s, x-api-key: %s, x-goog-api-key: %s, query key: %s",
 			authHeader, c.GetHeader("x-api-key"), c.GetHeader("x-goog-api-key"), c.Query("key"))
+
+		// 跳过 OPTIONS 请求（CORS 预检请求）
+		if c.Request.Method == "OPTIONS" {
+			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-goog-api-key")
+			c.Status(http.StatusOK)
+			c.Abort()
+			return
+		}
 
 		// 验证 API Key
 		if apiKey != cfg.LocalAPIKey {
@@ -838,6 +848,64 @@ func SetupAPIRouter(cfg *config.Config, routeService *service.RouteService, prox
 
 	// Gemini 流式生成接口 (支持 streamGenerateContent)
 	// 这个接口已经通过适配器逻辑处理，不需要单独的路由
+
+	// ========== 管理端点（用于路由转发管理） ==========
+
+	// CORS 预检请求处理
+	api.OPTIONS("/admin/routes/*path", func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-api-key, x-goog-api-key")
+		c.Status(http.StatusOK)
+	})
+
+	// 更新路由的转发目标（使用 target_route_id 字段）
+	api.PUT("/admin/routes/:routeId/forwarding", func(c *gin.Context) {
+		// 解析路由ID
+		var routeID int64
+		if _, err := fmt.Sscanf(c.Param("routeId"), "%d", &routeID); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("invalid route ID: %v", err),
+			})
+			return
+		}
+
+		var req struct {
+			TargetRouteID int64 `json:"target_route_id"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("invalid request: %v", err),
+			})
+			return
+		}
+
+		err := routeService.UpdateRouteForwarding(routeID, req.TargetRouteID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("failed to update route forwarding: %v", err),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Route forwarding updated successfully",
+		})
+	})
+
+	// 获取所有路由（包含转发信息）
+	api.GET("/admin/routes", func(c *gin.Context) {
+		routes, err := routeService.GetAllRoutes()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("failed to get routes: %v", err),
+			})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"routes": routes,
+		})
+	})
 
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {
