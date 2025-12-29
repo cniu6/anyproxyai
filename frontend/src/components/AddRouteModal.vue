@@ -19,15 +19,18 @@
       </n-form-item>
 
       <n-form-item :label="t('addRoute.modelId')" path="model">
-        <n-space style="width: 100%;">
+        <n-space style="width: 100%;" vertical>
           <n-input
             v-model:value="formModel.model"
             :placeholder="t('addRoute.modelIdPlaceholder')"
             style="flex: 1;"
           />
-          <n-button @click="fetchModels" :loading="fetchingModels">
-            {{ t('addRoute.fetchModels') }}
-          </n-button>
+          <n-space>
+            <n-button @click="fetchModels" :loading="fetchingModels">
+              {{ t('addRoute.fetchModels') }}
+            </n-button>
+            <n-text depth="3" style="font-size: 12px;">{{ t('addRoute.multiSelectTip') }}</n-text>
+          </n-space>
         </n-space>
       </n-form-item>
 
@@ -95,13 +98,20 @@
           <n-card
             :title="model"
             hoverable
-            @click="selectModel(model)"
+            @click="toggleModelSelection(model)"
             style="cursor: pointer; transition: all 0.3s;"
-            :class="{'selected-model-card': formModel.model === model}"
+            :class="{'selected-model-card': isModelSelected(model)}"
           >
             <template #header>
               <n-ellipsis style="max-width: 100%;" :tooltip="{ width: 300 }">
-                <n-text strong>{{ model }}</n-text>
+                <n-space align="center" justify="space-between">
+                  <n-text strong>{{ model }}</n-text>
+                  <n-checkbox
+                    :checked="isModelSelected(model)"
+                    @update:checked="() => toggleModelSelection(model)"
+                    @click.stop
+                  />
+                </n-space>
               </n-ellipsis>
             </template>
             <n-space vertical size="small">
@@ -109,7 +119,7 @@
                 {{ getModelProvider(model) }}
               </n-tag>
               <n-text depth="3" style="font-size: 12px;">
-                {{ t('addRoute.clickToSelect') }}
+                {{ t('addRoute.clickToToggle') }}
               </n-text>
             </n-space>
           </n-card>
@@ -123,8 +133,20 @@
     </n-scrollbar>
     <template #footer>
       <n-space justify="space-between" align="center">
-        <n-text depth="3">{{ t('addRoute.totalModels', { count: fetchedModels.length }) }}</n-text>
-        <n-button @click="showModelSelectModal = false">{{ t('addRoute.close') }}</n-button>
+        <n-space vertical>
+          <n-text depth="3">{{ t('addRoute.totalModels', { count: fetchedModels.length }) }}</n-text>
+          <n-text depth="3" v-if="formModel.models.length > 0">
+            {{ t('addRoute.selectedCount', { count: formModel.models.length }) }}
+          </n-text>
+        </n-space>
+        <n-space>
+          <n-button @click="clearModelSelection" v-if="formModel.models.length > 0">
+            {{ t('addRoute.clearSelection') }}
+          </n-button>
+          <n-button type="primary" @click="confirmModelSelection">
+            {{ t('addRoute.confirm') }}
+          </n-button>
+        </n-space>
       </n-space>
     </template>
   </n-modal>
@@ -161,6 +183,7 @@ const modelSearchKeyword = ref('')
 const formModel = ref({
   name: '',
   model: '',
+  models: [], // 多选模型列表
   apiUrl: '',
   apiKey: '',
   group: '',
@@ -216,6 +239,7 @@ const resetForm = () => {
   formModel.value = {
     name: '',
     model: '',
+    models: [],
     apiUrl: '',
     apiKey: '',
     group: '',
@@ -271,6 +295,40 @@ const selectModel = (model) => {
   window.$message?.success(t('addRoute.modelSelected') + ': ' + model)
   // 触发格式转换预览
   updateFormatConversion()
+}
+
+// 判断模型是否被选中
+const isModelSelected = (model) => {
+  return formModel.value.models.includes(model)
+}
+
+// 切换模型选择状态
+const toggleModelSelection = (model) => {
+  const index = formModel.value.models.indexOf(model)
+  if (index > -1) {
+    formModel.value.models.splice(index, 1)
+  } else {
+    formModel.value.models.push(model)
+  }
+}
+
+// 确认模型选择
+const confirmModelSelection = () => {
+  if (formModel.value.models.length === 0) {
+    window.$message?.warning(t('addRoute.selectAtLeastOne'))
+    return
+  }
+  // 将选中的模型列表合并到 model 字段，用逗号分隔
+  formModel.value.model = formModel.value.models.join(', ')
+  showModelSelectModal.value = false
+  modelSearchKeyword.value = ''
+  window.$message?.success(t('addRoute.modelsSelected') + ': ' + formModel.value.model)
+  updateFormatConversion()
+}
+
+// 清空模型选择
+const clearModelSelection = () => {
+  formModel.value.models = []
 }
 
 // 格式变化处理

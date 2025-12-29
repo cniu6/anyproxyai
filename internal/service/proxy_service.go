@@ -53,6 +53,22 @@ func (s *ProxyService) getRedirectRoute() (*database.ModelRoute, error) {
 	return s.routeService.GetRouteByModel(s.config.RedirectTargetModel)
 }
 
+// extractModelFromRequest 从请求的模型名中提取原始模型名
+// 输入: "LMStudio/qwen/qwen3-8b" 或 "qwen/qwen3-8b"
+// 输出: "qwen/qwen3-8b", "LMStudio" (如果有的话)
+func extractModelFromRequest(model string) (string, string) {
+	if strings.Contains(model, "/") {
+		parts := strings.SplitN(model, "/", 2)
+		if len(parts) == 2 {
+			routeName := parts[0]
+			originalModel := parts[1]
+			log.Infof("Extracted model from request: route=%s, model=%s", routeName, originalModel)
+			return originalModel, routeName
+		}
+	}
+	return model, ""
+}
+
 // ProxyRequest 代理请求
 func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]string) ([]byte, int, error) {
 	// 解析请求
@@ -102,7 +118,7 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 		model = route.Model
 		reqData["model"] = model
 
-		// 重新编码请求�?
+		// 重新编码请求体
 		requestBody, _ = json.Marshal(reqData)
 	} else {
 		// 查找路由
@@ -111,27 +127,36 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 			availableModels, _ := s.routeService.GetAvailableModels()
 			return nil, http.StatusNotFound, fmt.Errorf("model '%s' not found in route list. Available models: %v", model, availableModels)
 		}
+		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
+		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		if route.Model != model {
+			reqData["model"] = route.Model
+			requestBody, _ = json.Marshal(reqData)
+			log.Infof("Updated model in request body from '%s' to '%s'", model, route.Model)
+		}
 	}
 
 	// 检查是否需要进�?API 转换
 	var transformedBody []byte
 	var targetURL string
 
-	// 清理路由 API URL（移除末尾斜杠）
-	cleanAPIUrl := strings.TrimSuffix(route.APIUrl, "/")
+	// 不移除末尾斜杠，保留原始URL格式
+	// 如果API URL末尾有斜杠，说明是固定路径，buildAdapterURL会正确处理
+	cleanAPIUrl := route.APIUrl
 
-	// 智能检测适配�? 基于路由format和请求格�?(OpenAI格式请求)
+	// 智能检测适配器 基于路由format和请求格式 (OpenAI格式请求)
 	adapterName := s.detectAdapterForRoute(route, "openai")
 	if adapterName != "" {
-		// 使用适配器转换请�?
+		// 使用适配器转换请求
 		adapter := adapters.GetAdapter(adapterName)
-		transformedReq, err := adapter.AdaptRequest(reqData, model)
+		// 使用 route.Model（已去除前缀的原始模型名）来适配请求
+		transformedReq, err := adapter.AdaptRequest(reqData, route.Model)
 		if err != nil {
 			log.Errorf("Failed to adapt request: %v", err)
 			return nil, http.StatusInternalServerError, err
 		}
 		transformedBody, _ = json.Marshal(transformedReq)
-		targetURL = s.buildAdapterURL(cleanAPIUrl, adapterName, model)
+		targetURL = s.buildAdapterURL(cleanAPIUrl, adapterName, route.Model)
 	} else {
 		// 不使用适配器，直接转发
 		transformedBody = requestBody
@@ -296,10 +321,18 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 			// 其他路由相关错误
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
+		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
+		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		if route.Model != model {
+			reqData["model"] = route.Model
+			requestBody, _ = json.Marshal(reqData)
+			log.Infof("Updated model in request body from '%s' to '%s'", model, route.Model)
+		}
 	}
 
-	// 清理路由 API URL（移除末尾斜杠）
-	cleanAPIUrl := strings.TrimSuffix(route.APIUrl, "/")
+	// 不移除末尾斜杠，保留原始URL格式
+	// 如果API URL末尾有斜杠，说明是固定路径，buildAdapterURL会正确处理
+	cleanAPIUrl := route.APIUrl
 
 	// 智能检测适配器: 基于路由format和请求格式 (OpenAI格式请求)
 	adapterName := s.detectAdapterForRoute(route, "openai")
@@ -307,7 +340,7 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 	var targetURL string
 
 	if adapterName != "" {
-		// 使用适配器转换请�?
+		// 使用适配器转换请求
 		adapter := adapters.GetAdapter(adapterName)
 		if adapter == nil {
 			return fmt.Errorf("adapter not found: %s", adapterName)
@@ -315,14 +348,15 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 
 		// 确保开启stream
 		reqData["stream"] = true
-		transformedReq, err := adapter.AdaptRequest(reqData, model)
+		// 使用 route.Model（已去除前缀的原始模型名）来适配请求
+		transformedReq, err := adapter.AdaptRequest(reqData, route.Model)
 		if err != nil {
 			log.Errorf("Failed to adapt request: %v", err)
 			return err
 		}
 		transformedBody, _ = json.Marshal(transformedReq)
 		// 对流式请求使用专门的URL构建函数
-		targetURL = s.buildAdapterStreamURL(cleanAPIUrl, adapterName, model)
+		targetURL = s.buildAdapterStreamURL(cleanAPIUrl, adapterName, route.Model)
 		log.Infof("Streaming to: %s (route: %s, adapter: %s)", targetURL, route.Name, adapterName)
 	} else {
 		// 不使用适配器，直接转发
@@ -446,10 +480,18 @@ func (s *ProxyService) ProxyStreamRequestWithAdapter(requestBody []byte, headers
 			// 其他路由相关错误
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
+		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
+		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		if route.Model != model {
+			reqData["model"] = route.Model
+			requestBody, _ = json.Marshal(reqData)
+			log.Infof("Updated model in request body from '%s' to '%s'", model, route.Model)
+		}
 	}
 
-	// 清理路由 API URL（移除末尾斜杠）
-	cleanAPIUrl := strings.TrimSuffix(route.APIUrl, "/")
+	// 不移除末尾斜杠，保留原始URL格式
+	// 如果API URL末尾有斜杠，说明是固定路径，buildAdapterURL会正确处理
+	cleanAPIUrl := route.APIUrl
 
 	// 强制使用指定的适配器（如果为空则不使用适配器转换请求）
 	var transformedBody []byte
@@ -457,7 +499,7 @@ func (s *ProxyService) ProxyStreamRequestWithAdapter(requestBody []byte, headers
 	var adapter adapters.Adapter
 
 	if forceAdapter != "" {
-		// 使用指定的适配器转换请�?
+		// 使用指定的适配器转换请求
 		adapter = adapters.GetAdapter(forceAdapter)
 		if adapter == nil {
 			return fmt.Errorf("forced adapter not found: %s", forceAdapter)
@@ -465,13 +507,14 @@ func (s *ProxyService) ProxyStreamRequestWithAdapter(requestBody []byte, headers
 
 		// 确保开启stream
 		reqData["stream"] = true
-		transformedReq, err := adapter.AdaptRequest(reqData, model)
+		// 使用 route.Model（已去除前缀的原始模型名）来适配请求
+		transformedReq, err := adapter.AdaptRequest(reqData, route.Model)
 		if err != nil {
 			log.Errorf("Failed to adapt request: %v", err)
 			return err
 		}
 		transformedBody, _ = json.Marshal(transformedReq)
-		targetURL = s.buildAdapterStreamURL(cleanAPIUrl, forceAdapter, model)
+		targetURL = s.buildAdapterStreamURL(cleanAPIUrl, forceAdapter, route.Model)
 	} else {
 		// 不使用适配器，直接转发原始请求
 		transformedBody = requestBody
@@ -591,6 +634,13 @@ func (s *ProxyService) ProxyStreamRequestWithClaudeConversion(requestBody []byte
 			// 其他路由相关错误
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
+		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
+		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		if route.Model != model {
+			reqData["model"] = route.Model
+			requestBody, _ = json.Marshal(reqData)
+			log.Infof("Updated model in request body from '%s' to '%s'", model, route.Model)
+		}
 	}
 
 	log.Infof("=== STREAM ROUTE TARGET ===")
@@ -684,8 +734,9 @@ func (s *ProxyService) ProxyAnthropicRequest(requestBody []byte, headers map[str
 	var transformedBody []byte
 	var targetURL string
 
-	// 清理路由 API URL（移除末尾斜杠）
-	cleanAPIUrl := strings.TrimSuffix(route.APIUrl, "/")
+	// 不移除末尾斜杠，保留原始URL格式
+	// 如果API URL末尾有斜杠，说明是固定路径，buildAdapterURL会正确处理
+	cleanAPIUrl := route.APIUrl
 
 	// 智能检测适配�? 请求来自Claude格式,检测目标格�?
 	adapterName := s.detectAdapterForRoute(route, "claude")
@@ -849,10 +900,18 @@ func (s *ProxyService) ProxyAnthropicStreamRequest(requestBody []byte, headers m
 			// 其他路由相关错误
 			return fmt.Errorf("route lookup failed for model '%s': %v", model, err)
 		}
+		// 如果找到了带前缀的模型，更新请求体中的模型名为原始模型名（不带前缀）
+		// route.Model 已经被 GetRouteByModel 设置为原始模型名
+		if route.Model != model {
+			reqData["model"] = route.Model
+			requestBody, _ = json.Marshal(reqData)
+			log.Infof("Updated model in request body from '%s' to '%s'", model, route.Model)
+		}
 	}
 
-	// 清理路由 API URL（移除末尾斜杠）
-	cleanAPIUrl := strings.TrimSuffix(route.APIUrl, "/")
+	// 不移除末尾斜杠，保留原始URL格式
+	// 如果API URL末尾有斜杠，说明是固定路径，buildAdapterURL会正确处理
+	cleanAPIUrl := route.APIUrl
 
 	// 智能检测适配�? 请求来自 Claude 格式 (因为�?/api/anthropic 路径)
 	adapterName := s.detectAdapterForRoute(route, "claude")
@@ -862,7 +921,7 @@ func (s *ProxyService) ProxyAnthropicStreamRequest(requestBody []byte, headers m
 	log.Infof("[Anthropic Stream] Request format: claude, Route format: %s, Adapter: %s", route.Format, adapterName)
 
 	if adapterName == "claude-to-openai" {
-		// 目标�?OpenAI 格式，需要将 Claude 请求转换�?OpenAI 格式
+		// 目标是OpenAI 格式，需要将 Claude 请求转换为 OpenAI 格式
 		adapter := adapters.GetAdapter("claude-to-openai")
 		if adapter == nil {
 			return fmt.Errorf("adapter not found: claude-to-openai")
@@ -870,7 +929,8 @@ func (s *ProxyService) ProxyAnthropicStreamRequest(requestBody []byte, headers m
 
 		// 确保开启stream
 		reqData["stream"] = true
-		transformedReq, err := adapter.AdaptRequest(reqData, model)
+		// 使用 route.Model（已去除前缀的原始模型名）来适配请求
+		transformedReq, err := adapter.AdaptRequest(reqData, route.Model)
 		if err != nil {
 			log.Errorf("Failed to adapt request: %v", err)
 			return err
@@ -1011,10 +1071,10 @@ func (s *ProxyService) streamWithAdapter(reader io.Reader, writer io.Writer, flu
 				continue
 			}
 
-			// 从原始chunk中提取token使用信息（适配器转换前�?
-			// 根据反向适配器判断远端格�?
+			// 从原始chunk中提取token使用信息（适配器转换前）
+			// 根据反向适配器判断远端格式
 			if strings.HasPrefix(reverseAdapterName, "claude-") || reverseAdapterName == "anthropic" {
-				// 远端�?Claude 格式
+				// 远端是 Claude 格式
 				if chunkType, ok := chunk["type"].(string); ok {
 					switch chunkType {
 					case "message_start":
@@ -1026,23 +1086,38 @@ func (s *ProxyService) streamWithAdapter(reader io.Reader, writer io.Writer, flu
 							}
 						}
 					case "message_delta":
-						if delta, ok := chunk["delta"].(map[string]interface{}); ok {
-							if usage, ok := delta["usage"].(map[string]interface{}); ok {
-								if outputTokens, ok := usage["output_tokens"].(float64); ok {
-									totalCompletionTokens = int(outputTokens)
-								}
+						// Claude 的 message_delta 格式：
+						// { "type": "message_delta", "delta": {...}, "usage": {...} }
+						// usage 字段在根级别，不在 delta 里面
+						if usage, ok := chunk["usage"].(map[string]interface{}); ok {
+							if inputTokens, ok := usage["input_tokens"].(float64); ok {
+								totalPromptTokens = int(inputTokens)
+							}
+							if outputTokens, ok := usage["output_tokens"].(float64); ok {
+								totalCompletionTokens = int(outputTokens)
 							}
 						}
 					}
 				}
 			} else if strings.HasPrefix(reverseAdapterName, "gemini-") || reverseAdapterName == "gemini" {
-				// 远端�?Gemini 格式
+				// 远端是 Gemini 格式
 				if usageMetadata, ok := chunk["usageMetadata"].(map[string]interface{}); ok {
 					if promptTokens, ok := usageMetadata["promptTokenCount"].(float64); ok {
 						totalPromptTokens = int(promptTokens)
 					}
 					if candidatesTokens, ok := usageMetadata["candidatesTokenCount"].(float64); ok {
 						totalCompletionTokens = int(candidatesTokens)
+					}
+				}
+			} else {
+				// 默认处理 OpenAI 格式（适用于大多数情况）
+				// OpenAI 格式的 token 信息在 choices[x].finish_reason 和 usage 字段中
+				if usage, ok := chunk["usage"].(map[string]interface{}); ok {
+					if promptTokens, ok := usage["prompt_tokens"].(float64); ok {
+						totalPromptTokens = int(promptTokens)
+					}
+					if completionTokens, ok := usage["completion_tokens"].(float64); ok {
+						totalCompletionTokens = int(completionTokens)
 					}
 				}
 			}

@@ -3,6 +3,7 @@ package service
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -45,12 +46,41 @@ func (s *RouteService) GetAllRoutes() ([]database.ModelRoute, error) {
 }
 
 // GetRouteByModel 根据模型名获取路由(支持负载均衡)
+// 支持两种格式：
+// 1. 原始模型名: "gemma-3-12b-it-qat"
+// 2. 带路由名前缀: "LMStudio/gemma-3-12b-it-qat"
 func (s *RouteService) GetRouteByModel(model string) (*database.ModelRoute, error) {
+	var route database.ModelRoute
+	var err error
+
+	// 检查是否是带前缀的模型名 (RouteName/ModelName)
+	if strings.Contains(model, "/") {
+		parts := strings.SplitN(model, "/", 2)
+		if len(parts) == 2 {
+			routeName := parts[0]
+			originalModel := parts[1]
+			log.Infof("Looking up route by name: %s (original model: %s)", routeName, originalModel)
+
+			// 通过路由名查询，并验证该路由是否包含请求的模型
+			query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled, created_at, updated_at
+			          FROM model_routes WHERE name = ? AND enabled = 1 ORDER BY RANDOM() LIMIT 1`
+			err = s.db.QueryRow(query, routeName).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
+				&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.CreatedAt, &route.UpdatedAt)
+
+			if err == nil {
+				// 找到路由后，临时替换Model字段为原始模型名（用于后续转发）
+				route.Model = originalModel
+				log.Infof("Found route by name: %s, using model: %s", routeName, originalModel)
+				return &route, nil
+			}
+		}
+	}
+
+	// 如果不是带前缀的格式，或者通过路由名查找失败，则使用原始逻辑
 	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled, created_at, updated_at
 	          FROM model_routes WHERE model = ? AND enabled = 1 ORDER BY RANDOM() LIMIT 1`
 
-	var route database.ModelRoute
-	err := s.db.QueryRow(query, model).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
+	err = s.db.QueryRow(query, model).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
 		&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.CreatedAt, &route.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -250,9 +280,10 @@ func (s *RouteService) LogRequest(model string, routeID int64, requestTokens, re
 	return err
 }
 
-// GetAvailableModels 获取所有可用的模型列表（包含重定向关键字）
+// GetAvailableModels 获取所有可用的模型列表，返回带路由名前缀的模型
+// 例如：["LMStudio/qwen/qwen3-8b", "OpenAI/gpt-4"]
 func (s *RouteService) GetAvailableModels() ([]string, error) {
-	query := `SELECT DISTINCT model FROM model_routes WHERE enabled = 1 ORDER BY model`
+	query := `SELECT name, model FROM model_routes WHERE enabled = 1 ORDER BY name`
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -260,21 +291,37 @@ func (s *RouteService) GetAvailableModels() ([]string, error) {
 	}
 	defer rows.Close()
 
-	var models []string
+	modelMap := make(map[string]bool)
 	for rows.Next() {
-		var model string
-		if err := rows.Scan(&model); err != nil {
+		var routeName, model string
+		if err := rows.Scan(&routeName, &model); err != nil {
 			return nil, err
 		}
+		// 分割逗号分隔的模型列表，添加路由名前缀
+		models := strings.Split(model, ",")
+		for _, m := range models {
+			trimmed := strings.TrimSpace(m)
+			if trimmed != "" {
+				// 格式：路由名/原始模型名
+				renamedModel := fmt.Sprintf("%s/%s", routeName, trimmed)
+				modelMap[renamedModel] = true
+			}
+		}
+	}
+
+	// 转换为切片并排序
+	var models []string
+	for model := range modelMap {
 		models = append(models, model)
 	}
+	sort.Strings(models)
 
 	return models, nil
 }
 
-// GetAvailableModelsWithRedirect 获取所有可用的模型列表（包含重定向关键字）
+// GetAvailableModelsWithRedirect 获取所有可用的模型列表（包含重定向关键字），返回带路由名前缀的模型
 func (s *RouteService) GetAvailableModelsWithRedirect(redirectKeyword string) ([]string, error) {
-	query := `SELECT DISTINCT model FROM model_routes WHERE enabled = 1 ORDER BY model`
+	query := `SELECT name, model FROM model_routes WHERE enabled = 1 ORDER BY name`
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -282,20 +329,36 @@ func (s *RouteService) GetAvailableModelsWithRedirect(redirectKeyword string) ([
 	}
 	defer rows.Close()
 
-	var models []string
+	modelMap := make(map[string]bool)
 
 	// 首先添加重定向关键字（如果配置了）
 	if redirectKeyword != "" {
-		models = append(models, redirectKeyword)
+		modelMap[redirectKeyword] = true
 	}
 
 	for rows.Next() {
-		var model string
-		if err := rows.Scan(&model); err != nil {
+		var routeName, model string
+		if err := rows.Scan(&routeName, &model); err != nil {
 			return nil, err
 		}
+		// 分割逗号分隔的模型列表，添加路由名前缀
+		models := strings.Split(model, ",")
+		for _, m := range models {
+			trimmed := strings.TrimSpace(m)
+			if trimmed != "" {
+				// 格式：路由名/原始模型名
+				renamedModel := fmt.Sprintf("%s/%s", routeName, trimmed)
+				modelMap[renamedModel] = true
+			}
+		}
+	}
+
+	// 转换为切片并排序
+	var models []string
+	for model := range modelMap {
 		models = append(models, model)
 	}
+	sort.Strings(models)
 
 	return models, nil
 }
@@ -380,7 +443,9 @@ func (s *RouteService) GetHourlyStats() ([]map[string]interface{}, error) {
 		SELECT
 			CAST(substr(created_at, 12, 2) AS INTEGER) as hour,
 			COUNT(*) as requests,
-			COALESCE(SUM(total_tokens), 0) as total_tokens
+			COALESCE(SUM(total_tokens), 0) as total_tokens,
+			COALESCE(SUM(request_tokens), 0) as request_tokens,
+			COALESCE(SUM(response_tokens), 0) as response_tokens
 		FROM request_logs
 		WHERE substr(created_at, 1, 10) = date('now', 'localtime')
 		GROUP BY hour
@@ -396,17 +461,19 @@ func (s *RouteService) GetHourlyStats() ([]map[string]interface{}, error) {
 
 	var stats []map[string]interface{}
 	for rows.Next() {
-		var hour, requests, totalTokens int
-		err := rows.Scan(&hour, &requests, &totalTokens)
+		var hour, requests, totalTokens, requestTokens, responseTokens int
+		err := rows.Scan(&hour, &requests, &totalTokens, &requestTokens, &responseTokens)
 		if err != nil {
 			log.Errorf("GetHourlyStats scan error: %v", err)
 			return nil, err
 		}
 
 		stats = append(stats, map[string]interface{}{
-			"hour":         hour,
-			"requests":     requests,
-			"total_tokens": totalTokens,
+			"hour":            hour,
+			"requests":        requests,
+			"total_tokens":    totalTokens,
+			"request_tokens":  requestTokens,
+			"response_tokens": responseTokens,
 		})
 	}
 

@@ -5,9 +5,14 @@
 *.so
 *.dylib
 build/bin/
+build/darwin/
+build/linux/
+
 # Keep build config files but ignore generated files
 !build/
 !build/windows/
+!build/darwin/
+!build/linux/
 !build/config.yml
 
 # Test binary
@@ -20,15 +25,19 @@ build/bin/
 *.db
 *.db-shm
 *.db-wal
+data/
 
 # Config
 config.json
+*.config.yaml
+*.config.yml
 
 # Dependency directories
 node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/wailsjs/
 
 # IDE
 .vscode/
@@ -36,15 +45,46 @@ frontend/.vite/
 *.swp
 *.swo
 *~
+.vscode/
+.claude/
 
 # OS
 .DS_Store
 Thumbs.db
+.Spotlight-V100
+.Trashes
 
 # Logs
 *.log
+log/
+logs/
 
 # Wails
 wailsjs/
 frontend/wailsjs/
 nul
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Build artifacts
+*.a
+*.o
+*.sym
+*.obj
+
+# Go
+vendor/
+go.sum
+
+# Frontend specific
+frontend/.cache/
+frontend/package-lock.json
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local

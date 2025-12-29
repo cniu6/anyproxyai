@@ -144,40 +144,6 @@
             </n-grid-item>
           </n-grid>
 
-          <!-- Redirect Config -->
-          <n-card :title="'🔀 ' + t('home.redirectConfig')" style="margin-bottom: 24px;" :bordered="false">
-            <n-space vertical>
-              <n-space align="center">
-                <span>{{ t('home.enableRedirect') }}:</span>
-                <n-switch v-model:value="redirectConfig.enabled" @update:value="saveRedirectConfig" />
-              </n-space>
-
-              <n-space align="center" v-if="redirectConfig.enabled">
-                <n-tag type="info" size="large" style="font-family: monospace;">
-                  {{ redirectConfig.keyword }}
-                </n-tag>
-                <n-icon size="20"><ArrowForwardIcon /></n-icon>
-                <n-tag type="success" size="large" style="font-family: monospace;">
-                  {{ redirectConfig.targetModel || t('home.notConfigured') }}
-                </n-tag>
-                <n-tag v-if="redirectConfig.targetName" type="warning" size="large">
-                  ({{ redirectConfig.targetName }})
-                </n-tag>
-                <!-- 跳转按钮 -->
-                <n-button
-                  v-if="redirectConfig.targetModel"
-                  size="small"
-                  @click="jumpToTargetModel"
-                >
-                  <template #icon>
-                    <n-icon><LocationIcon /></n-icon>
-                  </template>
-                  {{ t('home.jumpToTarget') }}
-                </n-button>
-              </n-space>
-            </n-space>
-          </n-card>
-
           <!-- API Config -->
           <n-card :title="'🔑 ' + t('home.apiConfig')" style="margin-bottom: 24px;" :bordered="false">
             <n-grid :cols="2" :x-gap="24">
@@ -440,13 +406,15 @@
                   </div>
                 </div>
                 <!-- 单一 tooltip 元素 -->
-                <div 
-                  v-show="heatmapTooltip.show" 
+                <div
+                  v-show="heatmapTooltip.show"
                   class="heatmap-tooltip"
                   :style="{ left: heatmapTooltip.x + 'px', top: heatmapTooltip.y + 'px' }"
                 >
                   <div style="font-weight: bold;">{{ t('stats.date') }}: {{ heatmapTooltip.date }}</div>
                   <div>{{ t('stats.tokens') }}: {{ formatNumber(heatmapTooltip.tokens) }}</div>
+                  <div style="font-size: 11px; opacity: 0.8;">{{ t('stats.inputTokens') }}: {{ formatNumber(heatmapTooltip.requestTokens || 0) }}</div>
+                  <div style="font-size: 11px; opacity: 0.8;">{{ t('stats.outputTokens') }}: {{ formatNumber(heatmapTooltip.responseTokens || 0) }}</div>
                   <div>{{ t('stats.requestCount') }}: {{ heatmapTooltip.requests }}</div>
                 </div>
                 <div class="heatmap-legend">
@@ -463,7 +431,31 @@
 
             <!-- 今日按时间段显示的折线图 -->
             <n-card :title="'📈 ' + t('stats.todayTrend')" :bordered="false">
-              <v-chart :option="todayChartOption" style="height: 300px;" :theme="isDark ? 'dark' : ''" autoresize />
+              <template #header-extra>
+                <n-space align="center">
+                  <n-select
+                    v-model:value="trendTimeRange"
+                    :options="trendTimeRangeOptions"
+                    size="small"
+                    style="width: 100px"
+                    @update:value="onTrendTimeRangeChange"
+                  />
+                  <n-divider vertical />
+                  <n-checkbox v-model:checked="trendShowTotalTokens">
+                    {{ t('stats.totalTokensCol') }}
+                  </n-checkbox>
+                  <n-checkbox v-model:checked="trendShowInputTokens">
+                    {{ t('stats.inputTokens') }}
+                  </n-checkbox>
+                  <n-checkbox v-model:checked="trendShowOutputTokens">
+                    {{ t('stats.outputTokens') }}
+                  </n-checkbox>
+                  <n-checkbox v-model:checked="trendShowRequests">
+                    {{ t('stats.requestCount') }}
+                  </n-checkbox>
+                </n-space>
+              </template>
+              <v-chart :option="todayChartOption" style="height: 350px;" :theme="isDark ? 'dark' : ''" autoresize />
             </n-card>
 
             <!-- 历史使用量 - 接口使用排行 -->
@@ -513,25 +505,6 @@
               <div>
                 <n-text strong style="font-size: 16px;">{{ t('settings.appOptions') }}</n-text>
                 <n-space vertical :size="16" style="margin-top: 12px;">
-                  <!-- 重定向关键字设置 -->
-                  <div>
-                    <n-text depth="2" style="font-size: 14px; margin-bottom: 8px; display: block;">{{ t('settings.redirectKeyword') }}</n-text>
-                    <n-input
-                      v-model:value="settings.redirectKeyword"
-                      placeholder="proxy_auto"
-                      style="max-width: 300px;"
-                    >
-                      <template #suffix>
-                        <n-button text size="small" @click="updateRedirectKeyword">
-                          {{ t('settings.save') }}
-                        </n-button>
-                      </template>
-                    </n-input>
-                    <n-text depth="3" style="font-size: 12px; margin-top: 4px; display: block;">
-                      {{ t('settings.redirectKeywordDesc') }}
-                    </n-text>
-                  </div>
-
                   <n-checkbox v-model:checked="settings.autoStart" @update:checked="toggleAutoStart">
                     {{ t('settings.autoStart') }}
                   </n-checkbox>
@@ -734,11 +707,9 @@ import {
   List as ListIcon,
   BarChart as BarChartIcon,
   Settings as SettingsIcon,
-  Location as LocationIcon,
   LogoGithub as LogoGithubIcon,
   InformationCircle as InformationCircleIcon,
   Code as CodeIcon,
-  Link as LinkIcon,
   Trash as TrashIcon,
   Language as LanguageIcon,
 } from '@vicons/ionicons5'
@@ -817,32 +788,11 @@ const refreshAll = async () => {
 
 // Settings
 const settings = ref({
-  redirectKeyword: 'proxy_auto',
   autoStart: false,
   minimizeToTray: false,
   enableFileLog: false,
   port: 5642,
 })
-
-const updateRedirectKeyword = async () => {
-  if (!window.go || !window.go.main || !window.go.main.App) {
-    showMessage("error", t('messages.wailsNotReady'))
-    return
-  }
-  try {
-    await window.go.main.App.UpdateConfig(
-      redirectConfig.value.enabled,
-      settings.value.redirectKeyword,
-      redirectConfig.value.targetModel,
-      redirectConfig.value.targetRouteId
-    )
-    redirectConfig.value.keyword = settings.value.redirectKeyword
-    showMessage("success", t('messages.redirectKeywordUpdated'))
-    await loadConfig()
-  } catch (error) {
-    showMessage("error", t('messages.updateFailed') + ': ' + error)
-  }
-}
 
 // 更新端口设置
 const updatePort = async () => {
@@ -944,6 +894,8 @@ const heatmapTooltip = ref({
   y: 0,
   date: '',
   tokens: 0,
+  requestTokens: 0,
+  responseTokens: 0,
   requests: 0
 })
 
@@ -956,6 +908,8 @@ const showHeatmapTooltip = (event, day) => {
     y: rect.top,
     date: day.date,
     tokens: day.tokens,
+    requestTokens: day.requestTokens || 0,
+    responseTokens: day.responseTokens || 0,
     requests: day.requests
   }
 }
@@ -971,6 +925,8 @@ const generateHeatmapData = (dailyStats) => {
     dailyStats.forEach(stat => {
       statsMap[stat.date] = {
         tokens: stat.total_tokens || 0,
+        requestTokens: stat.request_tokens || 0,
+        responseTokens: stat.response_tokens || 0,
         requests: stat.requests || 0
       }
     })
@@ -994,10 +950,12 @@ const generateHeatmapData = (dailyStats) => {
       const month = String(date.getMonth() + 1).padStart(2, '0')
       const day = String(date.getDate()).padStart(2, '0')
       const dateStr = `${year}-${month}-${day}`
-      const stat = statsMap[dateStr] || { tokens: 0, requests: 0 }
+      const stat = statsMap[dateStr] || { tokens: 0, requestTokens: 0, responseTokens: 0, requests: 0 }
       week.push({
         date: dateStr,
         tokens: stat.tokens,
+        requestTokens: stat.requestTokens,
+        responseTokens: stat.responseTokens,
         requests: stat.requests
       })
     }
@@ -1059,19 +1017,179 @@ const getHeatmapClass = (tokens) => {
 // 今日按小时统计数据
 const hourlyStatsData = ref([])
 
+// 趋势图配置状态 - 使用复选框组合
+const trendTimeRange = ref('today') // today | week | month
+const dailyStatsForTrend = ref([]) // 用于周/月趋势的数据
+
+// 趋势显示选项 - 复选框状态
+const trendShowTotalTokens = ref(true)
+const trendShowInputTokens = ref(false)
+const trendShowOutputTokens = ref(false)
+const trendShowRequests = ref(true)
+
+// 趋势时间范围选项
+const trendTimeRangeOptions = computed(() => [
+  { label: t('stats.today'), value: 'today' },
+  { label: t('stats.week'), value: 'week' },
+  { label: t('stats.month'), value: 'month' }
+])
+
+// 切换趋势时间范围
+const onTrendTimeRangeChange = async () => {
+  if (trendTimeRange.value === 'today') {
+    await loadHourlyStats()
+  } else {
+    await loadDailyStatsForTrend()
+  }
+}
+
+// 加载用于趋势图的每日统计
+const loadDailyStatsForTrend = async () => {
+  try {
+    if (!window.go || !window.go.main || !window.go.main.App) {
+      return
+    }
+    const days = trendTimeRange.value === 'week' ? 7 : 30
+    const data = await window.go.main.App.GetDailyStats(days)
+    dailyStatsForTrend.value = data || []
+  } catch (error) {
+    console.error('加载趋势数据失败:', error)
+  }
+}
+
 // 今日折线图配置
 const todayChartOption = computed(() => {
-  // 生成24小时的数据（填充空白小时）
-  const hourlyTokensMap = {}
-  const hourlyRequestsMap = {}
-  hourlyStatsData.value.forEach(stat => {
-    hourlyTokensMap[stat.hour] = stat.total_tokens || 0
-    hourlyRequestsMap[stat.hour] = stat.requests || 0
-  })
+  const isToday = trendTimeRange.value === 'today'
+  const hasTokens = trendShowTotalTokens.value || trendShowInputTokens.value || trendShowOutputTokens.value
 
-  const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`)
-  const tokensData = Array.from({ length: 24 }, (_, i) => hourlyTokensMap[i] || 0)
-  const requestsData = Array.from({ length: 24 }, (_, i) => hourlyRequestsMap[i] || 0)
+  let xAxisData = []
+  let totalTokensData = []
+  let inputTokensData = []
+  let outputTokensData = []
+  let requestsData = []
+
+  const totalTokensName = t('stats.totalTokensCol')
+  const inputTokensName = t('stats.inputTokens')
+  const outputTokensName = t('stats.outputTokens')
+  const requestsName = t('stats.requestCount')
+
+  if (isToday) {
+    // 按小时显示
+    const hourlyTotalTokensMap = {}
+    const hourlyInputTokensMap = {}
+    const hourlyOutputTokensMap = {}
+    const hourlyRequestsMap = {}
+    hourlyStatsData.value.forEach(stat => {
+      hourlyTotalTokensMap[stat.hour] = stat.total_tokens || 0
+      hourlyInputTokensMap[stat.hour] = stat.request_tokens || 0
+      hourlyOutputTokensMap[stat.hour] = stat.response_tokens || 0
+      hourlyRequestsMap[stat.hour] = stat.requests || 0
+    })
+
+    xAxisData = Array.from({ length: 24 }, (_, i) => `${i}:00`)
+    totalTokensData = Array.from({ length: 24 }, (_, i) => hourlyTotalTokensMap[i] || 0)
+    inputTokensData = Array.from({ length: 24 }, (_, i) => hourlyInputTokensMap[i] || 0)
+    outputTokensData = Array.from({ length: 24 }, (_, i) => hourlyOutputTokensMap[i] || 0)
+    requestsData = Array.from({ length: 24 }, (_, i) => hourlyRequestsMap[i] || 0)
+  } else {
+    // 按天显示（周/月）
+    const days = trendTimeRange.value === 'week' ? 7 : 30
+    const dailyMap = {}
+
+    const today = new Date()
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(today)
+      date.setDate(date.getDate() - i)
+      const dateStr = date.toISOString().split('T')[0]
+      dailyMap[dateStr] = { totalTokens: 0, inputTokens: 0, outputTokens: 0, requests: 0 }
+    }
+
+    dailyStatsForTrend.value.forEach(stat => {
+      if (dailyMap[stat.date]) {
+        dailyMap[stat.date] = {
+          totalTokens: stat.total_tokens || 0,
+          inputTokens: stat.request_tokens || 0,
+          outputTokens: stat.response_tokens || 0,
+          requests: stat.requests || 0
+        }
+      }
+    })
+
+    xAxisData = Object.keys(dailyMap).map(d => {
+      const date = new Date(d)
+      return `${date.getMonth() + 1}/${date.getDate()}`
+    })
+    totalTokensData = Object.values(dailyMap).map(v => v.totalTokens)
+    inputTokensData = Object.values(dailyMap).map(v => v.inputTokens)
+    outputTokensData = Object.values(dailyMap).map(v => v.outputTokens)
+    requestsData = Object.values(dailyMap).map(v => v.requests)
+  }
+
+  // 构建系列数据
+  const series = []
+  const legendData = []
+
+  // 总 Token
+  if (trendShowTotalTokens.value) {
+    series.push({
+      name: totalTokensName,
+      type: 'line',
+      smooth: true,
+      data: totalTokensData,
+      yAxisIndex: 0,
+      areaStyle: {
+        color: isDark.value ? 'rgba(24, 160, 88, 0.15)' : 'rgba(24, 160, 88, 0.2)'
+      },
+      lineStyle: { color: '#18a058' },
+      itemStyle: { color: '#18a058' }
+    })
+    legendData.push(totalTokensName)
+  }
+
+  // 输入 Token
+  if (trendShowInputTokens.value) {
+    series.push({
+      name: inputTokensName,
+      type: 'line',
+      smooth: true,
+      data: inputTokensData,
+      yAxisIndex: 0,
+      areaStyle: {
+        color: isDark.value ? 'rgba(32, 128, 240, 0.15)' : 'rgba(32, 128, 240, 0.2)'
+      },
+      lineStyle: { color: '#2080f0' },
+      itemStyle: { color: '#2080f0' }
+    })
+    legendData.push(inputTokensName)
+  }
+
+  // 输出 Token
+  if (trendShowOutputTokens.value) {
+    series.push({
+      name: outputTokensName,
+      type: 'line',
+      smooth: true,
+      data: outputTokensData,
+      yAxisIndex: 0,
+      lineStyle: { color: '#722ed1' },
+      itemStyle: { color: '#722ed1' }
+    })
+    legendData.push(outputTokensName)
+  }
+
+  // 请求数
+  if (trendShowRequests.value) {
+    series.push({
+      name: requestsName,
+      type: 'line',
+      smooth: true,
+      data: requestsData,
+      yAxisIndex: hasTokens ? 1 : 0,
+      lineStyle: { color: '#f0a020' },
+      itemStyle: { color: '#f0a020' }
+    })
+    legendData.push(requestsName)
+  }
 
   return {
     tooltip: {
@@ -1079,9 +1197,9 @@ const todayChartOption = computed(() => {
       formatter: function(params) {
         let result = params[0].axisValue + '<br/>'
         params.forEach(param => {
-          // 对 Token 数量进行格式化
           let value = param.value
-          if (param.seriesIndex === 0) { // Token 系列
+          // Token 系列需要格式化
+          if ([totalTokensName, inputTokensName, outputTokensName].includes(param.seriesName)) {
             if (value >= 1000000) {
               value = (value / 1000000).toFixed(1) + 'M'
             } else if (value >= 1000) {
@@ -1094,7 +1212,7 @@ const todayChartOption = computed(() => {
       }
     },
     legend: {
-      data: [t('stats.tokens'), t('stats.requestCount')],
+      data: legendData,
       textStyle: {
         color: isDark.value ? '#fff' : '#333'
       }
@@ -1108,13 +1226,14 @@ const todayChartOption = computed(() => {
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: hours
+      data: xAxisData
     },
     yAxis: [
       {
         type: 'value',
-        name: 'Tokens',
+        name: hasTokens ? 'Tokens' : undefined,
         position: 'left',
+        show: hasTokens,
         axisLabel: {
           formatter: function(value) {
             if (value >= 1000000) {
@@ -1128,41 +1247,12 @@ const todayChartOption = computed(() => {
       },
       {
         type: 'value',
-        name: t('stats.requestCount'),
-        position: 'right'
+        name: trendShowRequests.value ? requestsName : undefined,
+        position: 'right',
+        show: trendShowRequests.value
       }
     ],
-    series: [
-      {
-        name: t('stats.tokens'),
-        type: 'line',
-        smooth: true,
-        data: tokensData,
-        yAxisIndex: 0,
-        areaStyle: {
-          color: isDark.value ? 'rgba(24, 160, 88, 0.1)' : 'rgba(24, 160, 88, 0.2)'
-        },
-        lineStyle: {
-          color: '#18a058'
-        },
-        itemStyle: {
-          color: '#18a058'
-        }
-      },
-      {
-        name: t('stats.requestCount'),
-        type: 'line',
-        smooth: true,
-        data: requestsData,
-        yAxisIndex: 1,
-        lineStyle: {
-          color: '#f0a020'
-        },
-        itemStyle: {
-          color: '#f0a020'
-        }
-      }
-    ]
+    series: series
   }
 })
 
@@ -1180,7 +1270,21 @@ const rankingColumns = computed(() => [
   },
   { title: t('stats.requests'), key: 'requests' },
   {
-    title: t('stats.totalTokensCol'),
+    title: t('stats.inputTokens'),
+    key: 'request_tokens',
+    render(row) {
+      return formatNumber(row.request_tokens || 0)
+    }
+  },
+  {
+    title: t('stats.outputTokens'),
+    key: 'response_tokens',
+    render(row) {
+      return formatNumber(row.response_tokens || 0)
+    }
+  },
+  {
+    title: t('stats.tokenUsage'),
     key: 'total_tokens',
     render(row) {
       return formatNumber(row.total_tokens || 0)
@@ -1199,15 +1303,6 @@ const rankingColumns = computed(() => [
 const config = ref({
   localApiKey: '',
   localApiEndpoint: '',
-})
-
-// Redirect Config
-const redirectConfig = ref({
-  enabled: false,
-  keyword: 'proxy_auto',
-  targetModel: '',
-  targetName: '',
-  targetRouteId: 0,
 })
 
 // Routes
@@ -1244,32 +1339,6 @@ const rowProps = (row) => {
 // Pagination
 const pagination = {
   pageSize: 10,
-}
-
-// 设置为重定向按钮处理
-const setAsRedirect = async (row) => {
-  redirectConfig.value.targetModel = row.model
-  redirectConfig.value.targetRouteId = row.id
-  redirectConfig.value.enabled = true
-  await saveRedirectConfig()
-  showMessage("success", t('home.setRedirectSuccess'))
-}
-
-// 跳转到目标模型
-const jumpToTargetModel = () => {
-  currentPage.value = 'models'
-
-  // 展开所有分组
-  expandedGroups.value = Object.keys(groupedRoutes.value)
-
-  // 等待DOM更新后滚动到目标模型
-  nextTick(() => {
-    // 查找目标模型所在的行
-    const targetRows = document.querySelectorAll('[data-model="' + redirectConfig.value.targetModel + '"]')
-    if (targetRows.length > 0) {
-      targetRows[0].scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  })
 }
 
 // Table columns for home page
@@ -1356,21 +1425,25 @@ const modelsPageColumns = computed(() => [
     title: t('models.name'),
     key: 'name',
     width: 150,
+    ellipsis: {
+      tooltip: true
+    }
   },
   {
     title: t('models.model'),
     key: 'model',
-    width: 200,
+    width: 400,
     render(row) {
-      return h(NSpace, { align: 'center' }, {
-        default: () => [
-          h(NTag, { type: 'info' }, { default: () => row.model }),
-          // 如果是当前重定向目标，通过路由ID精确匹配（避免同ID跨分组显示问题）
-          (redirectConfig.value.targetRouteId === row.id || 
-           (redirectConfig.value.targetRouteId === 0 && redirectConfig.value.targetModel === row.model))
-            ? h(NTag, { type: 'success', size: 'small' }, { default: () => t('home.redirectTarget') })
-            : null
-        ]
+      // 解析逗号分隔的模型列表
+      const models = row.model ? row.model.split(',').map(m => m.trim()).filter(m => m) : []
+
+      // 显示模型列表为标签
+      return h(NSpace, { align: 'center', wrap: true }, {
+        default: () => models.map(model =>
+          h(NTag, { type: 'info', size: 'small' }, {
+            default: () => model
+          })
+        )
       })
     },
   },
@@ -1384,7 +1457,7 @@ const modelsPageColumns = computed(() => [
   {
     title: t('models.actions'),
     key: 'actions',
-    width: 280,
+    width: 180,
     render(row) {
       return h(NSpace, {}, {
         default: () => [
@@ -1404,15 +1477,6 @@ const modelsPageColumns = computed(() => [
               onClick: () => handleDelete(row),
             },
             { default: () => t('models.delete'), icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
-          ),
-          h(
-            NButton,
-            {
-              size: 'small',
-              type: 'primary',
-              onClick: () => setAsRedirect(row),
-            },
-            { default: () => t('models.setAsTarget'), icon: () => h(NIcon, {}, { default: () => h(LinkIcon) }) }
           ),
         ]
       })
@@ -1511,12 +1575,6 @@ const loadConfig = async () => {
       localApiKey: data.localApiKey || '',
       localApiEndpoint: data.openaiEndpoint || ''
     }
-    redirectConfig.value.enabled = data.redirectEnabled || false
-    redirectConfig.value.keyword = data.redirectKeyword || 'proxy_auto'
-    redirectConfig.value.targetModel = data.redirectTargetModel || ''
-    redirectConfig.value.targetName = data.redirectTargetName || ''
-    redirectConfig.value.targetRouteId = data.redirectTargetRouteId || 0
-    settings.value.redirectKeyword = data.redirectKeyword || 'proxy_auto' // 同步到设置
     settings.value.minimizeToTray = data.minimizeToTray || false
     settings.value.autoStart = data.autoStart || false
     settings.value.enableFileLog = data.enableFileLog || false
@@ -1524,26 +1582,6 @@ const loadConfig = async () => {
     console.log('Config loaded:', config.value)
   } catch (error) {
     console.error('加载配置失败:', error)
-  }
-}
-
-const saveRedirectConfig = async () => {
-  if (!window.go || !window.go.main || !window.go.main.App) {
-    showMessage("error", 'Wails 运行时未就绪')
-    return
-  }
-  try {
-    await window.go.main.App.UpdateConfig(
-      redirectConfig.value.enabled,
-      redirectConfig.value.keyword,
-      redirectConfig.value.targetModel,
-      redirectConfig.value.targetRouteId
-    )
-    showMessage("success", t('messages.redirectConfigSaved'))
-    // 重新加载配置以获取最新的 targetName
-    await loadConfig()
-  } catch (error) {
-    showMessage("error", t('messages.redirectConfigFailed') + ': ' + error)
   }
 }
 
@@ -1640,6 +1678,7 @@ const exportRoutes = () => {
       api_url: route.api_url,
       api_key: route.api_key,
       group: route.group,
+      format: route.format || 'openai',
     }))
 
     const jsonStr = JSON.stringify(exportData, null, 2)
@@ -1720,7 +1759,8 @@ const handleFileImport = async (event) => {
           route.model || '',
           route.api_url || '',
           route.api_key || '',
-          route.group || ''
+          route.group || '',
+          route.format || 'openai'
         )
         successCount++
       } catch (error) {
