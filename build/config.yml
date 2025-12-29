@@ -10,7 +10,7 @@ info:
   description: "Universal AI API Proxy Router with Multi-Format Support"
   copyright: "(c) 2025, AnyProxyAi"
   comments: "AI API Proxy Router supporting OpenAI, Claude, and Gemini formats"
-  version: "2.0.4"
+  version: "2.0.5"
 # Dev mode configuration
 dev_mode:
   root_path: .
