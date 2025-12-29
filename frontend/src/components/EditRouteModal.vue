@@ -21,8 +21,9 @@
       <n-form-item :label="t('addRoute.modelId')" path="model">
         <n-space style="width: 100%;" vertical>
           <n-input
-            v-model:value="formModel.model"
+            :value="modelDisplayValue"
             :placeholder="t('addRoute.modelIdPlaceholder')"
+            readonly
             style="flex: 1;"
           />
           <n-space>
@@ -30,6 +31,23 @@
               {{ t('addRoute.fetchModels') }}
             </n-button>
             <n-text depth="3" style="font-size: 12px;">{{ t('addRoute.multiSelectTip') }}</n-text>
+          </n-space>
+        </n-space>
+      </n-form-item>
+
+      <n-form-item :label="t('addRoute.manualInput')" path="manualInput">
+        <n-space style="width: 100%;" vertical>
+          <n-input
+            v-model:value="manualInputValue"
+            :placeholder="t('addRoute.manualInputPlaceholder')"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+          />
+          <n-space>
+            <n-button type="primary" size="small" @click="addManualModels">
+              {{ t('addRoute.addModels') }}
+            </n-button>
+            <n-text depth="3" style="font-size: 12px;">{{ t('addRoute.manualInputTip') }}</n-text>
           </n-space>
         </n-space>
       </n-form-item>
@@ -168,6 +186,10 @@ const props = defineProps({
   route: {
     type: Object,
     default: null
+  },
+  routeList: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -183,12 +205,13 @@ const fetchingModels = ref(false)
 const fetchedModels = ref([])
 const modelSearchKeyword = ref('')
 const editingRoute = ref(null)
+const manualInputValue = ref('')
 
 // Form model
 const formModel = ref({
-  name: '',
-  model: '',
-  models: [], // 多选模型列表
+  name: '',      // 路由名称（完整名称，如 OpenAI-gpt-4）
+  model: '',     // 单个模型
+  models: [],    // 用于多选，但实际只保存一个
   apiUrl: '',
   apiKey: '',
   group: '',
@@ -198,7 +221,13 @@ const formModel = ref({
 // Form rules (computed for i18n)
 const formRules = computed(() => ({
   name: { required: true, message: t('addRoute.routeNamePlaceholder') },
-  model: { required: true, message: t('addRoute.modelIdPlaceholder') },
+  model: {
+    required: true,
+    validator: (rule, value) => {
+      return formModel.value.models.length > 0 || formModel.value.model !== ''
+    },
+    message: t('addRoute.modelIdPlaceholder')
+  },
   apiUrl: { required: true, message: t('addRoute.apiUrlPlaceholder') },
   format: { required: true, message: t('addRoute.apiFormatPlaceholder') },
 }))
@@ -220,12 +249,14 @@ watch(() => props.visible, (newVal) => {
   if (newVal && props.route) {
     // 当弹窗打开且有路由数据时，填充表单
     editingRoute.value = props.route
-    // 解析逗号分隔的模型字符串为数组
-    const models = props.route.model ? props.route.model.split(',').map(m => m.trim()).filter(m => m) : []
+    // 获取所有同名路由的模型
+    const allModels = props.routeList && props.routeList.length > 0
+      ? props.routeList.map(r => r.model)
+      : (props.route.model ? [props.route.model] : [])
     formModel.value = {
       name: props.route.name,
       model: props.route.model,
-      models: models,
+      models: allModels,  // 使用所有同名路由的模型
       apiUrl: props.route.api_url,
       apiKey: props.route.api_key,
       group: props.route.group,
@@ -252,6 +283,16 @@ const filteredModels = computed(() => {
   )
 })
 
+// Computed: display all selected models as comma-separated string
+const modelDisplayValue = computed(() => {
+  if (formModel.value.models.length > 1) {
+    return formModel.value.models.join(', ')
+  } else if (formModel.value.models.length === 1) {
+    return formModel.value.models[0]
+  }
+  return formModel.value.model || ''
+})
+
 // Methods
 const closeModal = () => {
   showModal.value = false
@@ -267,6 +308,7 @@ const resetForm = () => {
     group: '',
     format: 'openai',
   }
+  manualInputValue.value = ''
   showFormatConversion.value = false
   conversionPreview.value = null
   editingRoute.value = null
@@ -281,6 +323,47 @@ const cleanApiUrl = () => {
     if (trimmed !== formModel.value.apiUrl) {
       formModel.value.apiUrl = trimmed
     }
+  }
+}
+
+// 添加手动输入的模型
+const addManualModels = () => {
+  if (!manualInputValue.value || manualInputValue.value.trim() === '') {
+    window.$message?.warning(t('addRoute.enterModelNames'))
+    return
+  }
+
+  // 解析用户输入的模型列表（支持逗号、空格、换行分隔）
+  const models = manualInputValue.value
+    .split(/[,\s\n]+/)
+    .map(m => m.trim())
+    .filter(m => m.length > 0)
+
+  if (models.length === 0) {
+    window.$message?.warning(t('addRoute.enterModelNames'))
+    return
+  }
+
+  // 去重并合并到现有模型列表
+  const oldLength = formModel.value.models.length
+  const modelSet = new Set([...formModel.value.models, ...models])
+  const uniqueModels = Array.from(modelSet)
+  const addedCount = uniqueModels.length - oldLength
+
+  // 使用 splice 确保响应式更新
+  formModel.value.models.splice(0, formModel.value.models.length, ...uniqueModels)
+  formModel.value.model = uniqueModels[0]
+
+  // 清空输入框
+  manualInputValue.value = ''
+
+  // 触发格式转换预览
+  updateFormatConversion()
+
+  if (addedCount > 0) {
+    window.$message?.success(t('addRoute.modelsAdded', { count: addedCount }))
+  } else {
+    window.$message?.info(t('addRoute.noNewModels'))
   }
 }
 
@@ -302,7 +385,10 @@ const fetchModels = async () => {
       formModel.value.apiUrl,
       formModel.value.apiKey || ''
     )
-    fetchedModels.value = models
+    // 合并数据库中的模型和API获取的模型，去重
+    const dbModels = formModel.value.models || []
+    const allModels = [...new Set([...dbModels, ...models])]
+    fetchedModels.value = allModels
     showModelSelectModal.value = true
   } catch (error) {
     window.$message?.error(t('addRoute.fetchFailed') + ': ' + error)
@@ -341,11 +427,11 @@ const confirmModelSelection = () => {
     window.$message?.warning(t('addRoute.selectAtLeastOne'))
     return
   }
-  // 只保存第一个选中的模型（不再使用逗号分隔的多个模型）
+  // 编辑模式也保留所有选中的模型（虽然实际上只保存第一个到数据库）
   formModel.value.model = formModel.value.models[0]
   showModelSelectModal.value = false
   modelSearchKeyword.value = ''
-  window.$message?.success(t('addRoute.modelsSelected') + ': ' + formModel.value.model)
+  window.$message?.success(t('addRoute.modelsSelected') + ': ' + formModel.value.models.length + ' ' + t('addRoute.models'))
   updateFormatConversion()
 }
 
@@ -490,17 +576,92 @@ const handleSubmit = async () => {
     // 只做 trim，保留末尾斜杠（如果有的话，表示用户希望直接使用该路径）
     const cleanedApiUrl = formModel.value.apiUrl.trim()
 
-    await window.go.main.App.UpdateRoute(
-      editingRoute.value.id,
-      formModel.value.name,
-      formModel.value.model,
-      cleanedApiUrl,
-      formModel.value.apiKey,
-      formModel.value.group,
-      formModel.value.format
-    )
+    // 获取当前选择的模型列表
+    const currentModels = formModel.value.models.length > 0
+      ? formModel.value.models
+      : (formModel.value.model ? [formModel.value.model] : [])
 
-    window.$message?.success(t('editRoute.routeUpdated'))
+    if (currentModels.length === 0) {
+      window.$message?.warning(t('addRoute.selectAtLeastOne'))
+      return
+    }
+
+    // 获取原始模型列表（从 routeList）
+    const oldModels = props.routeList && props.routeList.length > 0
+      ? props.routeList.map(r => r.model)
+      : [props.route.model]
+
+    // 计算需要添加、删除和更新的模型
+    const oldModelsSet = new Set(oldModels)
+    const newModelsSet = new Set(currentModels)
+
+    // 需要添加的模型（在新列表中但不在旧列表中）
+    const modelsToAdd = currentModels.filter(m => !oldModelsSet.has(m))
+    // 需要删除的模型（在旧列表中但不在新列表中）
+    const modelsToDelete = oldModels.filter(m => !newModelsSet.has(m))
+    // 需要更新的模型（在两个列表中都存在）
+    const modelsToUpdate = currentModels.filter(m => oldModelsSet.has(m))
+
+    let successCount = 0
+    let failCount = 0
+
+    // 1. 删除不需要的模型路由
+    for (const model of modelsToDelete) {
+      try {
+        await window.go.main.App.DeleteRouteByKey(props.route.name, model)
+        successCount++
+      } catch (error) {
+        console.error('Failed to delete route for model:', model, error)
+        failCount++
+      }
+    }
+
+    // 2. 更新现有模型路由
+    for (const model of modelsToUpdate) {
+      try {
+        // 找到对应的路由记录
+        const existingRoute = props.routeList?.find(r => r.model === model) || props.route
+        await window.go.main.App.UpdateRoute(
+          existingRoute.id,
+          formModel.value.name,
+          model,
+          cleanedApiUrl,
+          formModel.value.apiKey,
+          formModel.value.group,
+          formModel.value.format
+        )
+        successCount++
+      } catch (error) {
+        console.error('Failed to update route for model:', model, error)
+        failCount++
+      }
+    }
+
+    // 3. 添加新模型路由
+    for (const model of modelsToAdd) {
+      try {
+        await window.go.main.App.AddRoute(
+          formModel.value.name,
+          model,
+          cleanedApiUrl,
+          formModel.value.apiKey,
+          formModel.value.group,
+          formModel.value.format
+        )
+        successCount++
+      } catch (error) {
+        console.error('Failed to add route for model:', model, error)
+        failCount++
+      }
+    }
+
+    if (successCount > 0) {
+      window.$message?.success(t('editRoute.routeUpdated'))
+    }
+    if (failCount > 0) {
+      window.$message?.warning(`${failCount} ` + t('editRoute.updateFailed'))
+    }
+
     emit('route-updated')
     closeModal()
   } catch (error) {

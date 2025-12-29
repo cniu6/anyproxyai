@@ -97,6 +97,17 @@ export const addRoute = async (
   return callService<void>('AddRoute', name, model, apiUrl, apiKey, group, format)
 }
 
+export const addRoutes = async (
+  baseName: string,
+  models: string[],
+  apiUrl: string,
+  apiKey: string,
+  group: string,
+  format: string
+): Promise<void> => {
+  return callService<void>('AddRoutes', baseName, models, apiUrl, apiKey, group, format)
+}
+
 export const updateRoute = async (
   id: number,
   name: string,
@@ -109,8 +120,35 @@ export const updateRoute = async (
   return callService<void>('UpdateRoute', id, name, model, apiUrl, apiKey, group, format)
 }
 
+// Update route by composite key (name + model)
+export const updateRouteByKey = async (
+  oldName: string,
+  oldModel: string,
+  name: string,
+  model: string,
+  apiUrl: string,
+  apiKey: string,
+  group: string,
+  format: string
+): Promise<void> => {
+  return callService<void>('UpdateRouteByKey', oldName, oldModel, name, model, apiUrl, apiKey, group, format)
+}
+
 export const deleteRoute = async (id: number): Promise<void> => {
   return callService<void>('DeleteRoute', id)
+}
+
+// Delete route by composite key (name + model)
+export const deleteRouteByKey = async (name: string, model: string): Promise<void> => {
+  return callService<void>('DeleteRouteByKey', name, model)
+}
+
+export const clearAllRoutes = async (): Promise<void> => {
+  return callService<void>('ClearAllRoutes')
+}
+
+export const hasMultiModelRoutes = async (): Promise<boolean> => {
+  return callService<boolean>('HasMultiModelRoutes')
 }
 
 // Statistics

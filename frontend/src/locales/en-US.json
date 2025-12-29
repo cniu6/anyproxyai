@@ -8,12 +8,22 @@
   },
   "addRoute": {
     "title": "Add Route",
+    "routeBaseName": "Route Base Name",
+    "routeBaseNamePlaceholder": "e.g., OpenAI",
+    "routeBaseNameTip": "💡 Tip: When adding multiple models, routes will be created in 'BaseName-Model' format",
     "routeName": "Route Name",
     "routeNamePlaceholder": "e.g., OpenAI Official",
     "modelId": "Model ID",
     "modelIdPlaceholder": "e.g., gpt-4",
     "fetchModels": "Fetch Models",
-    "multiSelectTip": "Multi-select supported, comma-separated",
+    "multiSelectTip": "Multi-select supported, each model will create a separate route",
+    "manualInput": "Manual Input",
+    "manualInputPlaceholder": "Enter model names (comma, space, or newline separated)",
+    "manualInputTip": "Models will be added to the selection above",
+    "addModels": "Add Models",
+    "enterModelNames": "Please enter model names",
+    "modelsAdded": "Added {count} models",
+    "noNewModels": "No new models to add",
     "apiUrl": "API URL",
     "apiUrlPlaceholder": "https://api.openai.com/v1",
     "apiUrlTip": "💡 Tip: API URL should not end with a slash (/)",
@@ -44,9 +54,11 @@
     "claudeFormat": "Anthropic Claude Format",
     "geminiFormat": "Google Gemini Format [Not Supported]",
     "routeAdded": "Route added",
+    "routesAdded": "{count} routes added",
     "operationFailed": "Operation failed",
     "modelSelected": "Model selected",
     "modelsSelected": "Models selected",
+    "models": "models",
     "fetchFailed": "Failed to fetch model list",
     "enterApiUrlFirst": "Please enter API URL first",
     "wailsNotReady": "Wails runtime not ready"
@@ -230,5 +242,16 @@
     "roundRobin": "Round Robin",
     "first": "First",
     "last": "Last"
+  },
+  "migration": {
+    "title": "Data Migration Required",
+    "message": "Old data format detected. The new version uses 'one model per record' storage. You need to clear existing data and re-add routes.",
+    "confirm": "Clear and Continue",
+    "cancel": "Later",
+    "dataInclude": "Data to be cleared includes:",
+    "routesData": "All route configurations",
+    "requestLogs": "All request logs",
+    "dataCleared": "Data cleared. Please re-add routes.",
+    "clearFailed": "Failed to clear data"
   }
 }

@@ -47,8 +47,8 @@ func (s *RouteService) GetAllRoutes() ([]database.ModelRoute, error) {
 
 // GetRouteByModel 根据模型名获取路由(支持负载均衡)
 // 支持两种格式：
-// 1. 原始模型名: "gemma-3-12b-it-qat"
-// 2. 带路由名前缀: "LMStudio/gemma-3-12b-it-qat"
+// 1. 原始模型名: "gpt-4"
+// 2. 带路由名前缀: "OpenAI/gpt-4"
 func (s *RouteService) GetRouteByModel(model string) (*database.ModelRoute, error) {
 	var route database.ModelRoute
 	var err error
@@ -148,6 +148,26 @@ func (s *RouteService) UpdateRoute(id int64, name, model, apiUrl, apiKey, group,
 	return nil
 }
 
+// UpdateRouteByKey 通过组合键 (oldName, oldModel) 更新路由
+func (s *RouteService) UpdateRouteByKey(oldName, oldModel, name, model, apiUrl, apiKey, group, format string) error {
+	query := `UPDATE model_routes SET name = ?, model = ?, api_url = ?, api_key = ?, "group" = ?, format = ?, updated_at = ?
+	          WHERE name = ? AND model = ?`
+
+	result, err := s.db.Exec(query, name, model, apiUrl, apiKey, group, format, time.Now(), oldName, oldModel)
+	if err != nil {
+		log.Errorf("Failed to update route by key: %v", err)
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("route not found: name=%s, model=%s", oldName, oldModel)
+	}
+
+	log.Infof("Route updated by key: %s/%s -> %s/%s", oldName, oldModel, name, model)
+	return nil
+}
+
 // DeleteRoute 删除路由及其相关的请求日志
 func (s *RouteService) DeleteRoute(id int64) error {
 	// 先删除该路由相关的请求日志
@@ -171,6 +191,43 @@ func (s *RouteService) DeleteRoute(id int64) error {
 	}
 
 	log.Infof("Route deleted: id=%d (with related logs)", id)
+	return nil
+}
+
+// DeleteRouteByKey 通过组合键 (name, model) 删除路由及其相关的请求日志
+func (s *RouteService) DeleteRouteByKey(name, model string) error {
+	// 先获取路由ID
+	var id int64
+	err := s.db.QueryRow(`SELECT id FROM model_routes WHERE name = ? AND model = ?`, name, model).Scan(&id)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("route not found: name=%s, model=%s", name, model)
+	}
+	if err != nil {
+		log.Errorf("Failed to find route by key: %v", err)
+		return err
+	}
+
+	// 先删除该路由相关的请求日志
+	_, err = s.db.Exec(`DELETE FROM request_logs WHERE route_id = ?`, id)
+	if err != nil {
+		log.Errorf("Failed to delete route logs: %v", err)
+		return err
+	}
+
+	// 再删除路由
+	query := `DELETE FROM model_routes WHERE name = ? AND model = ?`
+	result, err := s.db.Exec(query, name, model)
+	if err != nil {
+		log.Errorf("Failed to delete route: %v", err)
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("route not found: name=%s, model=%s", name, model)
+	}
+
+	log.Infof("Route deleted by key: %s/%s (with related logs)", name, model)
 	return nil
 }
 
@@ -281,7 +338,7 @@ func (s *RouteService) LogRequest(model string, routeID int64, requestTokens, re
 }
 
 // GetAvailableModels 获取所有可用的模型列表，返回带路由名前缀的模型
-// 例如：["LMStudio/qwen/qwen3-8b", "OpenAI/gpt-4"]
+// 例如：["OpenAI/gpt-4", "Claude/claude-3-sonnet-20240229"]
 func (s *RouteService) GetAvailableModels() ([]string, error) {
 	query := `SELECT name, model FROM model_routes WHERE enabled = 1 ORDER BY name`
 
@@ -291,31 +348,18 @@ func (s *RouteService) GetAvailableModels() ([]string, error) {
 	}
 	defer rows.Close()
 
-	modelMap := make(map[string]bool)
+	var models []string
 	for rows.Next() {
 		var routeName, model string
 		if err := rows.Scan(&routeName, &model); err != nil {
 			return nil, err
 		}
-		// 分割逗号分隔的模型列表，添加路由名前缀
-		models := strings.Split(model, ",")
-		for _, m := range models {
-			trimmed := strings.TrimSpace(m)
-			if trimmed != "" {
-				// 格式：路由名/原始模型名
-				renamedModel := fmt.Sprintf("%s/%s", routeName, trimmed)
-				modelMap[renamedModel] = true
-			}
-		}
+		// 格式：路由名/模型名
+		renamedModel := fmt.Sprintf("%s/%s", routeName, model)
+		models = append(models, renamedModel)
 	}
 
-	// 转换为切片并排序
-	var models []string
-	for model := range modelMap {
-		models = append(models, model)
-	}
 	sort.Strings(models)
-
 	return models, nil
 }
 
@@ -329,11 +373,11 @@ func (s *RouteService) GetAvailableModelsWithRedirect(redirectKeyword string) ([
 	}
 	defer rows.Close()
 
-	modelMap := make(map[string]bool)
+	var models []string
 
 	// 首先添加重定向关键字（如果配置了）
 	if redirectKeyword != "" {
-		modelMap[redirectKeyword] = true
+		models = append(models, redirectKeyword)
 	}
 
 	for rows.Next() {
@@ -341,25 +385,12 @@ func (s *RouteService) GetAvailableModelsWithRedirect(redirectKeyword string) ([
 		if err := rows.Scan(&routeName, &model); err != nil {
 			return nil, err
 		}
-		// 分割逗号分隔的模型列表，添加路由名前缀
-		models := strings.Split(model, ",")
-		for _, m := range models {
-			trimmed := strings.TrimSpace(m)
-			if trimmed != "" {
-				// 格式：路由名/原始模型名
-				renamedModel := fmt.Sprintf("%s/%s", routeName, trimmed)
-				modelMap[renamedModel] = true
-			}
-		}
+		// 格式：路由名/模型名
+		renamedModel := fmt.Sprintf("%s/%s", routeName, model)
+		models = append(models, renamedModel)
 	}
 
-	// 转换为切片并排序
-	var models []string
-	for model := range modelMap {
-		models = append(models, model)
-	}
 	sort.Strings(models)
-
 	return models, nil
 }
 
@@ -760,4 +791,37 @@ func (s *RouteService) GetModelRanking(limit int) ([]map[string]interface{}, err
 	}
 
 	return ranking, nil
+}
+
+// AddRoutes 批量添加路由（一个模型一条记录）
+func (s *RouteService) AddRoutes(baseName string, models []string, apiUrl, apiKey, group, format string) error {
+	now := time.Now()
+
+	for _, model := range models {
+		// 路由名直接使用基础名称（不再拼接模型名）
+		routeName := baseName
+
+		query := `INSERT INTO model_routes (name, model, api_url, api_key, "group", format, enabled, created_at, updated_at)
+		          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+
+		_, err := s.db.Exec(query, routeName, model, apiUrl, apiKey, group, format, now, now)
+		if err != nil {
+			log.Errorf("Failed to add route: %v", err)
+			return err
+		}
+
+		log.Infof("Route added: %s -> %s (%s) [%s]", model, apiUrl, routeName, format)
+	}
+
+	return nil
+}
+
+// ClearAllRoutes 清空所有路由数据
+func (s *RouteService) ClearAllRoutes() error {
+	return database.ClearAllRoutes(s.db)
+}
+
+// HasMultiModelRoutes 检测是否存在包含逗号分隔多模型的旧数据
+func (s *RouteService) HasMultiModelRoutes() (bool, error) {
+	return database.HasMultiModelRoutes(s.db)
 }

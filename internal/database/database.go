@@ -101,5 +101,45 @@ func createTables(db *sql.DB) error {
 	// 忽略错误，因为列可能已经存在
 	db.Exec(migration)
 
+	// 添加唯一约束 (name, model) - 组合键
+	uniqueConstraintMigration := `
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_model_routes_name_model ON model_routes(name, model);
+	`
+	db.Exec(uniqueConstraintMigration)
+
 	return nil
+}
+
+// ClearAllRoutes 清空所有路由数据并重置自增ID
+func ClearAllRoutes(db *sql.DB) error {
+	// 先删除相关的请求日志
+	_, err := db.Exec(`DELETE FROM request_logs`)
+	if err != nil {
+		return err
+	}
+
+	// 删除所有路由
+	_, err = db.Exec(`DELETE FROM model_routes`)
+	if err != nil {
+		return err
+	}
+
+	// 重置自增ID
+	_, err = db.Exec(`DELETE FROM sqlite_sequence WHERE name='model_routes'`)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// HasMultiModelRoutes 检测是否存在包含逗号分隔多模型的旧数据
+func HasMultiModelRoutes(db *sql.DB) (bool, error) {
+	query := `SELECT COUNT(*) FROM model_routes WHERE model LIKE '%,%'`
+	var count int
+	err := db.QueryRow(query).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

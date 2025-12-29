@@ -300,24 +300,47 @@
               />
             </template>
 
-            <!-- 按分组显示的折叠面板 -->
+            <!-- 按分组显示的折叠面板（嵌套：group > name） -->
             <n-collapse v-model:expanded-names="expandedGroups">
               <n-collapse-item
-                v-for="(groupRoutes, groupName) in groupedRoutes"
+                v-for="(nameGroups, groupName) in groupedRoutes"
                 :key="groupName"
                 :name="groupName"
-                :title="`${t('models.group')}: ${groupName || t('models.ungrouped')} (${groupRoutes.length} ${t('models.modelCount')})`"
+                :title="`${t('models.group')}: ${groupName || t('models.ungrouped')} (${Object.values(nameGroups).flat().length} ${t('models.modelCount')})`"
               >
-                <n-data-table
-                  :columns="modelsPageColumns"
-                  :data="groupRoutes"
-                  :bordered="false"
-                  :single-line="false"
-                  size="small"
-                  striped
-                  :pagination="false"
-                  :row-props="rowProps"
-                />
+                <!-- 第二层：按名称分组 -->
+                <n-collapse>
+                  <n-collapse-item
+                    v-for="(routeList, routeName) in nameGroups"
+                    :key="routeName"
+                    :name="routeName"
+                  >
+                    <template #header>
+                      <n-space align="center" justify="space-between" style="width: 100%;">
+                        <span>{{ `${routeName} (${routeList.length} ${t('models.modelCount')})` }}</span>
+                        <n-button
+                          size="small"
+                          @click.stop="openNameEditModal(routeName, routeList)"
+                        >
+                          <template #icon>
+                            <n-icon><EditIcon /></n-icon>
+                          </template>
+                          {{ t('models.edit') }}
+                        </n-button>
+                      </n-space>
+                    </template>
+                    <n-data-table
+                      :columns="modelsPageColumns"
+                      :data="routeList"
+                      :bordered="false"
+                      :single-line="false"
+                      size="small"
+                      striped
+                      :pagination="false"
+                      :row-props="rowProps"
+                    />
+                  </n-collapse-item>
+                </n-collapse>
               </n-collapse-item>
             </n-collapse>
 
@@ -601,6 +624,7 @@
     <EditRouteModal
       v-model:visible="showEditModal"
       :route="editingRoute"
+      :route-list="editingRouteList"
       @route-updated="handleRouteUpdated"
     />
 
@@ -673,6 +697,32 @@
       </template>
       {{ t('restartDialog.message') }}
     </n-modal>
+
+    <!-- Data Migration Confirmation Dialog -->
+    <n-modal
+      v-model:show="showMigrationDialog"
+      preset="dialog"
+      :title="t('migration.title')"
+      type="warning"
+      :positive-text="t('migration.confirm')"
+      :negative-text="t('migration.cancel')"
+      @positive-click="confirmDataMigration"
+      @negative-click="showMigrationDialog = false"
+    >
+      <template #icon>
+        <n-icon size="24" color="#f0a020">
+          <RefreshIcon />
+        </n-icon>
+      </template>
+      {{ t('migration.message') }}
+      <br>
+      <br>
+      <strong>{{ t('migration.dataInclude') }}</strong>
+      <ul>
+        <li>{{ t('migration.routesData') }}</li>
+        <li>{{ t('migration.requestLogs') }}</li>
+      </ul>
+    </n-modal>
   </n-config-provider>
 </template>
 
@@ -715,6 +765,9 @@ import {
 } from '@vicons/ionicons5'
 import AddRouteModal from './components/AddRouteModal.vue'
 import EditRouteModal from './components/EditRouteModal.vue'
+
+// 导入 API 服务
+import { hasMultiModelRoutes, clearAllRoutes } from './services/app'
 
 // 注册 ECharts 组件
 use([
@@ -1310,20 +1363,27 @@ const routes = ref([])
 const showAddModal = ref(false)
 const showEditModal = ref(false)
 const editingRoute = ref(null)
+const editingRouteList = ref([]) // All routes with the same name
 const expandedGroups = ref([]) // 控制折叠面板展开状态
 const fileInput = ref(null) // 文件输入引用
 const showClearDialog = ref(false) // 清除数据确认对话框
 const showRestartDialog = ref(false) // 重启确认对话框
+const showMigrationDialog = ref(false) // 数据迁移确认对话框
 
-// Computed: 按分组组织路由
+// Computed: 先按分组组织路由，再在分组内按名称组织
 const groupedRoutes = computed(() => {
   const groups = {}
   routes.value.forEach(route => {
     const groupName = route.group || '未分组'
     if (!groups[groupName]) {
-      groups[groupName] = []
+      groups[groupName] = {}
     }
-    groups[groupName].push(route)
+    // 在分组内再按名称组织
+    const routeName = route.name
+    if (!groups[groupName][routeName]) {
+      groups[groupName][routeName] = []
+    }
+    groups[groupName][routeName].push(route)
   })
   return groups
 })
@@ -1432,18 +1492,11 @@ const modelsPageColumns = computed(() => [
   {
     title: t('models.model'),
     key: 'model',
-    width: 400,
+    width: 200,
     render(row) {
-      // 解析逗号分隔的模型列表
-      const models = row.model ? row.model.split(',').map(m => m.trim()).filter(m => m) : []
-
-      // 显示模型列表为标签
-      return h(NSpace, { align: 'center', wrap: true }, {
-        default: () => models.map(model =>
-          h(NTag, { type: 'info', size: 'small' }, {
-            default: () => model
-          })
-        )
+      // 直接显示单个模型（不再分割逗号）
+      return h(NTag, { type: 'info', size: 'small' }, {
+        default: () => row.model
       })
     },
   },
@@ -1457,29 +1510,17 @@ const modelsPageColumns = computed(() => [
   {
     title: t('models.actions'),
     key: 'actions',
-    width: 180,
+    width: 100,
     render(row) {
-      return h(NSpace, {}, {
-        default: () => [
-          h(
-            NButton,
-            {
-              size: 'small',
-              onClick: () => handleEdit(row),
-            },
-            { default: () => t('models.edit'), icon: () => h(NIcon, {}, { default: () => h(EditIcon) }) }
-          ),
-          h(
-            NButton,
-            {
-              size: 'small',
-              type: 'error',
-              onClick: () => handleDelete(row),
-            },
-            { default: () => t('models.delete'), icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
-          ),
-        ]
-      })
+      return h(
+        NButton,
+        {
+          size: 'small',
+          type: 'error',
+          onClick: () => handleDelete(row),
+        },
+        { default: () => t('models.delete'), icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
+      )
     },
   },
 ])
@@ -1601,6 +1642,15 @@ const handleEdit = (row) => {
   showEditModal.value = true
 }
 
+// 打开名称编辑弹窗（直接编辑该名称下的第一个路由）
+const openNameEditModal = (routeName, routeList) => {
+  if (routeList.length > 0) {
+    editingRoute.value = routeList[0]
+    editingRouteList.value = routeList  // Store all routes with the same name
+    showEditModal.value = true
+  }
+}
+
 const handleDelete = async (row) => {
   if (!window.go || !window.go.main || !window.go.main.App) {
     showMessage("error", 'Wails 运行时未就绪')
@@ -1708,6 +1758,41 @@ const showClearStatsDialog = () => {
   showClearDialog.value = true
 }
 
+// 检查是否需要数据迁移
+const checkDataMigration = async () => {
+  try {
+    if (!window.go || !window.go.main || !window.go.main.App) {
+      return
+    }
+    const hasOldData = await hasMultiModelRoutes()
+    if (hasOldData) {
+      showMigrationDialog.value = true
+    }
+  } catch (error) {
+    console.error('Failed to check data migration:', error)
+  }
+}
+
+// 确认数据迁移（清空所有数据）
+const confirmDataMigration = async () => {
+  try {
+    if (!window.go || !window.go.main || !window.go.main.App) {
+      showMessage("error", 'Wails 运行时未就绪')
+      return
+    }
+
+    await window.go.main.App.ClearAllRoutes()
+    showMessage("success", t('migration.dataCleared'))
+    showMigrationDialog.value = false
+
+    // 重新加载数据
+    await loadRoutes()
+    await loadStats()
+  } catch (error) {
+    showMessage("error", t('migration.clearFailed') + ': ' + error)
+  }
+}
+
 // 确认清除统计数据
 const confirmClearStats = async () => {
   if (!window.go || !window.go.main || !window.go.main.App) {
@@ -1804,6 +1889,9 @@ onMounted(async () => {
   loadDailyStats()
   loadHourlyStats()
   loadModelRanking()
+
+  // 检查是否需要数据迁移
+  checkDataMigration()
 
   // 每 30 秒刷新一次统计
   setInterval(() => {

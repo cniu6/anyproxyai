@@ -14,15 +14,19 @@
       label-placement="left"
       label-width="100px"
     >
-      <n-form-item :label="t('addRoute.routeName')" path="name">
-        <n-input v-model:value="formModel.name" :placeholder="t('addRoute.routeNamePlaceholder')" />
+      <n-form-item :label="t('addRoute.routeBaseName')" path="baseName">
+        <n-input v-model:value="formModel.baseName" :placeholder="t('addRoute.routeBaseNamePlaceholder')" />
+        <template #feedback>
+          <span style="color: #888; font-size: 12px;">{{ t('addRoute.routeBaseNameTip') }}</span>
+        </template>
       </n-form-item>
 
       <n-form-item :label="t('addRoute.modelId')" path="model">
         <n-space style="width: 100%;" vertical>
           <n-input
-            v-model:value="formModel.model"
+            :value="modelDisplayValue"
             :placeholder="t('addRoute.modelIdPlaceholder')"
+            readonly
             style="flex: 1;"
           />
           <n-space>
@@ -30,6 +34,23 @@
               {{ t('addRoute.fetchModels') }}
             </n-button>
             <n-text depth="3" style="font-size: 12px;">{{ t('addRoute.multiSelectTip') }}</n-text>
+          </n-space>
+        </n-space>
+      </n-form-item>
+
+      <n-form-item :label="t('addRoute.manualInput')" path="manualInput">
+        <n-space style="width: 100%;" vertical>
+          <n-input
+            v-model:value="manualInputValue"
+            :placeholder="t('addRoute.manualInputPlaceholder')"
+            type="textarea"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+          />
+          <n-space>
+            <n-button type="primary" size="small" @click="addManualModels">
+              {{ t('addRoute.addModels') }}
+            </n-button>
+            <n-text depth="3" style="font-size: 12px;">{{ t('addRoute.manualInputTip') }}</n-text>
           </n-space>
         </n-space>
       </n-form-item>
@@ -178,10 +199,11 @@ const submitting = ref(false)
 const fetchingModels = ref(false)
 const fetchedModels = ref([])
 const modelSearchKeyword = ref('')
+const manualInputValue = ref('')
 
 // Form model
 const formModel = ref({
-  name: '',
+  baseName: '', // 路由基础名称
   model: '',
   models: [], // 多选模型列表
   apiUrl: '',
@@ -192,7 +214,7 @@ const formModel = ref({
 
 // Form rules (computed for i18n)
 const formRules = computed(() => ({
-  name: { required: true, message: t('addRoute.routeNamePlaceholder') },
+  baseName: { required: true, message: t('addRoute.routeBaseNamePlaceholder') },
   model: { required: true, message: t('addRoute.modelIdPlaceholder') },
   apiUrl: { required: true, message: t('addRoute.apiUrlPlaceholder') },
   format: { required: true, message: t('addRoute.apiFormatPlaceholder') },
@@ -230,6 +252,16 @@ const filteredModels = computed(() => {
   )
 })
 
+// Computed: display all selected models as comma-separated string
+const modelDisplayValue = computed(() => {
+  if (formModel.value.models.length > 1) {
+    return formModel.value.models.join(', ')
+  } else if (formModel.value.models.length === 1) {
+    return formModel.value.models[0]
+  }
+  return formModel.value.model || ''
+})
+
 // Methods
 const closeModal = () => {
   showModal.value = false
@@ -237,7 +269,7 @@ const closeModal = () => {
 
 const resetForm = () => {
   formModel.value = {
-    name: '',
+    baseName: '',
     model: '',
     models: [],
     apiUrl: '',
@@ -245,6 +277,7 @@ const resetForm = () => {
     group: '',
     format: 'openai',
   }
+  manualInputValue.value = ''
   showFormatConversion.value = false
   conversionPreview.value = null
   formRef.value?.restoreValidation()
@@ -258,6 +291,47 @@ const cleanApiUrl = () => {
     if (trimmed !== formModel.value.apiUrl) {
       formModel.value.apiUrl = trimmed
     }
+  }
+}
+
+// 添加手动输入的模型
+const addManualModels = () => {
+  if (!manualInputValue.value || manualInputValue.value.trim() === '') {
+    window.$message?.warning(t('addRoute.enterModelNames'))
+    return
+  }
+
+  // 解析用户输入的模型列表（支持逗号、空格、换行分隔）
+  const models = manualInputValue.value
+    .split(/[,\s\n]+/)
+    .map(m => m.trim())
+    .filter(m => m.length > 0)
+
+  if (models.length === 0) {
+    window.$message?.warning(t('addRoute.enterModelNames'))
+    return
+  }
+
+  // 去重并合并到现有模型列表
+  const oldLength = formModel.value.models.length
+  const modelSet = new Set([...formModel.value.models, ...models])
+  const uniqueModels = Array.from(modelSet)
+  const addedCount = uniqueModels.length - oldLength
+
+  // 使用 splice 确保响应式更新
+  formModel.value.models.splice(0, formModel.value.models.length, ...uniqueModels)
+  formModel.value.model = uniqueModels[0]
+
+  // 清空输入框
+  manualInputValue.value = ''
+
+  // 触发格式转换预览
+  updateFormatConversion()
+
+  if (addedCount > 0) {
+    window.$message?.success(t('addRoute.modelsAdded', { count: addedCount }))
+  } else {
+    window.$message?.info(t('addRoute.noNewModels'))
   }
 }
 
@@ -318,11 +392,11 @@ const confirmModelSelection = () => {
     window.$message?.warning(t('addRoute.selectAtLeastOne'))
     return
   }
-  // 将选中的模型列表合并到 model 字段，用逗号分隔
-  formModel.value.model = formModel.value.models.join(', ')
+  // 将选中的模型列表保存到 models 字段（不合并）
+  formModel.value.model = formModel.value.models[0] // 显示第一个
   showModelSelectModal.value = false
   modelSearchKeyword.value = ''
-  window.$message?.success(t('addRoute.modelsSelected') + ': ' + formModel.value.model)
+  window.$message?.success(t('addRoute.modelsSelected') + ': ' + formModel.value.models.length + ' ' + t('addRoute.models'))
   updateFormatConversion()
 }
 
@@ -467,16 +541,45 @@ const handleSubmit = async () => {
     // 只做 trim，保留末尾斜杠（如果有的话，表示用户希望直接使用该路径）
     const cleanedApiUrl = formModel.value.apiUrl.trim()
 
-    await window.go.main.App.AddRoute(
-      formModel.value.name,
-      formModel.value.model,
-      cleanedApiUrl,
-      formModel.value.apiKey,
-      formModel.value.group,
-      formModel.value.format
-    )
+    // 获取模型列表
+    const selectedModels = formModel.value.models.length > 0
+      ? formModel.value.models
+      : (formModel.value.model ? [formModel.value.model] : [])
 
-    window.$message?.success(t('addRoute.routeAdded'))
+    if (selectedModels.length === 0) {
+      window.$message?.warning(t('addRoute.selectAtLeastOne'))
+      return
+    }
+
+    // 路由名称直接使用 baseName（不再拼接模型名）
+    const routeName = formModel.value.baseName || 'Route'
+    let successCount = 0
+    let failCount = 0
+
+    for (const model of selectedModels) {
+      try {
+        await window.go.main.App.AddRoute(
+          routeName,
+          model,
+          cleanedApiUrl,
+          formModel.value.apiKey,
+          formModel.value.group,
+          formModel.value.format
+        )
+        successCount++
+      } catch (error) {
+        console.error('Failed to add route for model:', model, error)
+        failCount++
+      }
+    }
+
+    if (successCount > 0) {
+      window.$message?.success(t('addRoute.routesAdded', { count: successCount }))
+    }
+    if (failCount > 0) {
+      window.$message?.warning(`${failCount} ${t('addRoute.operationFailed')}`)
+    }
+
     emit('route-added')
     closeModal()
   } catch (error) {

@@ -8,12 +8,22 @@
   },
   "addRoute": {
     "title": "添加路由",
+    "routeBaseName": "路由基础名称",
+    "routeBaseNamePlaceholder": "例如: OpenAI",
+    "routeBaseNameTip": "💡 提示：添加多个模型时，将使用「基础名称-模型名」格式创建路由",
     "routeName": "路由名称",
     "routeNamePlaceholder": "例如: OpenAI Official",
     "modelId": "模型 ID",
     "modelIdPlaceholder": "例如: gpt-4",
     "fetchModels": "获取模型",
-    "multiSelectTip": "支持多选模型，用逗号分隔",
+    "multiSelectTip": "支持多选模型，每个模型将创建独立路由",
+    "manualInput": "手动输入",
+    "manualInputPlaceholder": "输入模型名称（支持逗号、空格、换行分隔）",
+    "manualInputTip": "输入的模型将添加到上方选择中",
+    "addModels": "添加模型",
+    "enterModelNames": "请输入模型名称",
+    "modelsAdded": "已添加 {count} 个模型",
+    "noNewModels": "没有新模型需要添加",
     "apiUrl": "API URL",
     "apiUrlPlaceholder": "https://api.openai.com/v1",
     "apiUrlTip": "💡 提示：API URL 一般不要在末尾加斜杠 (/)",
@@ -44,9 +54,11 @@
     "claudeFormat": "Anthropic Claude 格式",
     "geminiFormat": "Google Gemini 格式 [暂不支持]",
     "routeAdded": "路由已添加",
+    "routesAdded": "已添加 {count} 个路由",
     "operationFailed": "操作失败",
     "modelSelected": "已选择模型",
     "modelsSelected": "已选择模型",
+    "models": "个模型",
     "fetchFailed": "获取模型列表失败",
     "enterApiUrlFirst": "请先输入 API URL",
     "wailsNotReady": "Wails 运行时未就绪"
@@ -230,5 +242,16 @@
     "roundRobin": "轮询选择",
     "first": "优先选择第一个",
     "last": "优先选择最后一个"
+  },
+  "migration": {
+    "title": "需要数据迁移",
+    "message": "检测到旧版本的数据格式。新版本采用「一个模型一条记录」的存储方式，需要清空现有数据后重新添加。",
+    "confirm": "清空并继续",
+    "cancel": "稍后处理",
+    "dataInclude": "将被清空的数据包括：",
+    "routesData": "所有路由配置",
+    "requestLogs": "所有请求日志",
+    "dataCleared": "数据已清空，请重新添加路由",
+    "clearFailed": "清空数据失败"
   }
 }

@@ -152,14 +152,29 @@ func (a *AppService) AddRoute(name, model, apiUrl, apiKey, group, format string)
 	return a.RouteService.AddRoute(name, model, apiUrl, apiKey, group, format)
 }
 
+// AddRoutes 批量添加路由（一个模型一条记录）
+func (a *AppService) AddRoutes(baseName string, models []string, apiUrl, apiKey, group, format string) error {
+	return a.RouteService.AddRoutes(baseName, models, apiUrl, apiKey, group, format)
+}
+
 // UpdateRoute 更新路由
 func (a *AppService) UpdateRoute(id int64, name, model, apiUrl, apiKey, group, format string) error {
 	return a.RouteService.UpdateRoute(id, name, model, apiUrl, apiKey, group, format)
 }
 
+// UpdateRouteByKey 通过组合键 (oldName, oldModel) 更新路由
+func (a *AppService) UpdateRouteByKey(oldName, oldModel, name, model, apiUrl, apiKey, group, format string) error {
+	return a.RouteService.UpdateRouteByKey(oldName, oldModel, name, model, apiUrl, apiKey, group, format)
+}
+
 // DeleteRoute 删除路由
 func (a *AppService) DeleteRoute(id int64) error {
 	return a.RouteService.DeleteRoute(id)
+}
+
+// DeleteRouteByKey 通过组合键 (name, model) 删除路由
+func (a *AppService) DeleteRouteByKey(name, model string) error {
+	return a.RouteService.DeleteRouteByKey(name, model)
 }
 
 // GetStats 获取统计信息
@@ -377,4 +392,20 @@ func (a *AppService) RestartApp() error {
 		a.App.Quit()
 	}
 	return nil
+}
+
+// ClearAllRoutes 清空所有路由数据
+func (a *AppService) ClearAllRoutes() error {
+	err := a.RouteService.ClearAllRoutes()
+	if err != nil {
+		log.Errorf("Failed to clear all routes: %v", err)
+		return fmt.Errorf("failed to clear all routes: %v", err)
+	}
+	log.Info("All routes cleared successfully")
+	return nil
+}
+
+// HasMultiModelRoutes 检测是否存在包含逗号分隔多模型的旧数据
+func (a *AppService) HasMultiModelRoutes() (bool, error) {
+	return a.RouteService.HasMultiModelRoutes()
 }
