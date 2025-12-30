@@ -97,6 +97,7 @@
   "deleteRoute": {
     "title": "Confirm Delete",
     "message": "Are you sure you want to delete route \"{name}\"? This action cannot be undone.",
+    "deleteGroupMessage": "Are you sure you want to delete {count} models under route \"{name}\"? This action cannot be undone.",
     "confirm": "Delete",
     "cancel": "Cancel",
     "deleted": "Route deleted",
@@ -159,6 +160,7 @@
   "stats": {
     "todayStats": "Today's Statistics",
     "clearData": "Clear Data",
+    "compressData": "Compress Data",
     "todayTokens": "Today's Token Usage",
     "todayRequests": "Today's Requests",
     "totalTokens": "Total Token Usage",
@@ -186,7 +188,12 @@
     "tokens": "Tokens",
     "requestCount": "Requests",
     "clearSuccess": "Statistics cleared",
-    "clearFailed": "Clear failed"
+    "clearFailed": "Clear failed",
+    "compressSuccess": "Data compressed, {count} duplicate records removed",
+    "compressFailed": "Compression failed",
+    "compressConfirmTitle": "Confirm Compress Data",
+    "compressConfirmMessage": "Are you sure you want to compress the data? Multiple request records from the same day and model will be merged.",
+    "compressWarning": "⚠️ Warning: After compression, individual request count statistics will be lost, only the merged total count will be retained."
   },
   "settings": {
     "title": "Application Settings",

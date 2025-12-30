@@ -931,6 +931,81 @@ func (s *RouteService) HasMultiModelRoutes() (bool, error) {
 	return database.HasMultiModelRoutes(s.db)
 }
 
+// CompressRequestLogs 压缩请求日志（同一天同模型合并）
+func (s *RouteService) CompressRequestLogs() (int, error) {
+	// 1. 创建临时表存储压缩后的数据
+	createTempTable := `
+		CREATE TEMPORARY TABLE compressed_logs AS
+		SELECT
+			min(id) as id,
+			model,
+			min(route_id) as route_id,
+			SUM(request_tokens) as request_tokens,
+			SUM(response_tokens) as response_tokens,
+			SUM(total_tokens) as total_tokens,
+			MIN(CASE WHEN success = 0 THEN 0 ELSE 1 END) as success,
+			MAX(error_message) as error_message,
+			substr(created_at, 1, 10) || ' 00:00:00' as created_at
+		FROM request_logs
+		GROUP BY model, substr(created_at, 1, 10)
+	`
+
+	_, err := s.db.Exec(createTempTable)
+	if err != nil {
+		log.Errorf("Failed to create temp table for compression: %v", err)
+		return 0, err
+	}
+
+	// 2. 获取压缩前的记录数
+	var beforeCount int
+	err = s.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&beforeCount)
+	if err != nil {
+		return 0, err
+	}
+
+	// 3. 删除原表数据
+	_, err = s.db.Exec("DELETE FROM request_logs")
+	if err != nil {
+		log.Errorf("Failed to delete original logs: %v", err)
+		return 0, err
+	}
+
+	// 4. 从临时表插入压缩后的数据
+	insertCompressed := `
+		INSERT INTO request_logs (id, model, route_id, request_tokens, response_tokens, total_tokens, success, error_message, created_at)
+		SELECT id, model, route_id, request_tokens, response_tokens, total_tokens, success, error_message, created_at
+		FROM compressed_logs
+	`
+
+	_, err = s.db.Exec(insertCompressed)
+	if err != nil {
+		log.Errorf("Failed to insert compressed logs: %v", err)
+		return 0, err
+	}
+
+	// 5. 删除临时表
+	s.db.Exec("DROP TABLE compressed_logs")
+
+	// 6. 获取压缩后的记录数
+	var afterCount int
+	err = s.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&afterCount)
+	if err != nil {
+		return beforeCount - afterCount, nil
+	}
+
+	// 7. 执行 VACUUM 释放数据库空间
+	// 注意：VACUUM 会重建数据库文件，可能需要一些时间
+	_, err = s.db.Exec("VACUUM")
+	if err != nil {
+		log.Warnf("Failed to VACUUM database after compression: %v", err)
+		// VACUUM 失败不影响压缩结果，仅记录警告
+	}
+
+	deletedCount := beforeCount - afterCount
+	log.Infof("Request logs compressed: %d -> %d (deleted %d records)", beforeCount, afterCount, deletedCount)
+	return deletedCount, nil
+}
+
 // GetRouteByForwarding 通过路由的 target_route_id 字段获取目标路由
 // 首先检查路由的 target_route_id 字段，如果设置了且非零，并且转发已启用，则转发到目标路由
 func (s *RouteService) GetRouteByForwarding(model string) (*database.ModelRoute, error) {

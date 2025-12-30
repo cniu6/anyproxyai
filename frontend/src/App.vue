@@ -329,15 +329,28 @@
                     <template #header>
                       <n-space align="center" justify="space-between" style="width: 100%;">
                         <span>{{ `${routeName} (${routeList.length} ${t('models.modelCount')})` }}</span>
-                        <n-button
-                          size="small"
-                          @click.stop="openNameEditModal(routeName, routeList)"
-                        >
-                          <template #icon>
-                            <n-icon><EditIcon /></n-icon>
-                          </template>
-                          {{ t('models.edit') }}
-                        </n-button>
+                        <n-space>
+                          <n-button
+                            size="small"
+                            type="error"
+                            ghost
+                            @click.stop="handleDeleteRouteGroup(routeList)"
+                          >
+                            <template #icon>
+                              <n-icon><DeleteIcon /></n-icon>
+                            </template>
+                            {{ t('models.delete') }}
+                          </n-button>
+                          <n-button
+                            size="small"
+                            @click.stop="openNameEditModal(routeName, routeList)"
+                          >
+                            <template #icon>
+                              <n-icon><EditIcon /></n-icon>
+                            </template>
+                            {{ t('models.edit') }}
+                          </n-button>
+                        </n-space>
                       </n-space>
                     </template>
                     <n-data-table
@@ -369,12 +382,20 @@
             <!-- 今日消耗统计卡片 -->
             <n-card :title="'📊 ' + t('stats.todayStats')" :bordered="false">
               <template #header-extra>
-                <n-button type="error" quaternary @click="showClearStatsDialog">
-                  <template #icon>
-                    <n-icon><TrashIcon /></n-icon>
-                  </template>
-                  {{ t('stats.clearData') }}
-                </n-button>
+                <n-space>
+                  <n-button type="info" quaternary @click="handleCompressStats" :loading="compressingStats">
+                    <template #icon>
+                      <n-icon><CompressionIcon /></n-icon>
+                    </template>
+                    {{ t('stats.compressData') }}
+                  </n-button>
+                  <n-button type="error" quaternary @click="showClearStatsDialog">
+                    <template #icon>
+                      <n-icon><TrashIcon /></n-icon>
+                    </template>
+                    {{ t('stats.clearData') }}
+                  </n-button>
+                </n-space>
               </template>
               <n-grid :cols="4" :x-gap="16">
                 <n-grid-item>
@@ -773,6 +794,47 @@
         <li>{{ t('migration.requestLogs') }}</li>
       </ul>
     </n-modal>
+
+    <!-- Delete Route Confirmation Dialog -->
+    <n-modal
+      v-model:show="showDeleteDialog"
+      preset="dialog"
+      :title="t('deleteRoute.title')"
+      type="error"
+      :positive-text="t('deleteRoute.confirm')"
+      :negative-text="t('deleteRoute.cancel')"
+      @positive-click="confirmDelete"
+      @negative-click="showDeleteDialog = false"
+    >
+      <template #icon>
+        <n-icon size="24" color="#e88080">
+          <TrashIcon />
+        </n-icon>
+      </template>
+      {{ t('deleteRoute.deleteGroupMessage', { name: deletingRouteList[0]?.name || '', count: deletingRouteList.length }) }}
+    </n-modal>
+
+    <!-- Compress Data Confirmation Dialog -->
+    <n-modal
+      v-model:show="showCompressDialog"
+      preset="dialog"
+      :title="t('stats.compressConfirmTitle')"
+      type="warning"
+      :positive-text="t('deleteRoute.confirm')"
+      :negative-text="t('deleteRoute.cancel')"
+      @positive-click="confirmCompressStats"
+      @negative-click="showCompressDialog = false"
+    >
+      <template #icon>
+        <n-icon size="24" color="#f0a020">
+          <CompressionIcon />
+        </n-icon>
+      </template>
+      {{ t('stats.compressConfirmMessage') }}
+      <br>
+      <br>
+      <strong>{{ t('stats.compressWarning') }}</strong>
+    </n-modal>
   </n-config-provider>
 </template>
 
@@ -814,6 +876,7 @@ import {
   Trash as TrashIcon,
   Language as LanguageIcon,
   CloseOutline as ClearIcon,
+  Contract as CompressionIcon,
 } from '@vicons/ionicons5'
 import AddRouteModal from './components/AddRouteModal.vue'
 import EditRouteModal from './components/EditRouteModal.vue'
@@ -1625,6 +1688,10 @@ const fileInput = ref(null) // 文件输入引用
 const showClearDialog = ref(false) // 清除数据确认对话框
 const showRestartDialog = ref(false) // 重启确认对话框
 const showMigrationDialog = ref(false) // 数据迁移确认对话框
+const showDeleteDialog = ref(false) // 删除路由确认对话框
+const deletingRouteList = ref([]) // 正在删除的路由列表（同名下的所有路由）
+const showCompressDialog = ref(false) // 压缩数据确认对话框
+const compressingStats = ref(false) // 压缩数据状态
 
 // Computed: 先按分组组织路由，再在分组内按名称组织
 const groupedRoutes = computed(() => {
@@ -1790,13 +1857,13 @@ const modelsPageColumns = computed(() => [
   {
     title: t('models.actions'),
     key: 'actions',
-    width: 300,
+    width: 240,
     render(row) {
       const buttons = [
         h(
           NButton,
           {
-            size: 'small',
+            size: 'tiny',
             type: 'primary',
             ghost: true,
             onClick: () => openEditForwardingModal({
@@ -1815,7 +1882,7 @@ const modelsPageColumns = computed(() => [
           h(
             NButton,
             {
-              size: 'small',
+              size: 'tiny',
               type: 'warning',
               ghost: true,
               onClick: () => handleClearForwarding(row.id),
@@ -1825,13 +1892,14 @@ const modelsPageColumns = computed(() => [
         )
       }
 
+      // 单个模型删除按钮（直接删除，不需要确认）
       buttons.push(
         h(
           NButton,
           {
-            size: 'small',
+            size: 'tiny',
             type: 'error',
-            onClick: () => handleDelete(row),
+            onClick: () => handleDeleteSingle(row),
           },
           { default: () => t('models.delete'), icon: () => h(NIcon, {}, { default: () => h(DeleteIcon) }) }
         )
@@ -1970,7 +2038,8 @@ const openNameEditModal = (routeName, routeList) => {
   }
 }
 
-const handleDelete = async (row) => {
+// 删除单个模型路由（直接删除，不需要确认）
+const handleDeleteSingle = async (row) => {
   if (!window.go || !window.go.main || !window.go.main.App) {
     showMessage("error", 'Wails 运行时未就绪')
     return
@@ -1978,6 +2047,36 @@ const handleDelete = async (row) => {
   try {
     await window.go.main.App.DeleteRoute(row.id)
     showMessage("success", t('deleteRoute.deleted'))
+    loadRoutes()
+    loadStats()
+  } catch (error) {
+    showMessage("error", t('deleteRoute.deleteFailed') + ': ' + error)
+  }
+}
+
+// 删除整个路由（同名下的所有模型，需要二次确认）
+const handleDeleteRouteGroup = (routeList) => {
+  deletingRouteList.value = routeList
+  showDeleteDialog.value = true
+}
+
+// 确认删除路由
+const confirmDelete = async () => {
+  if (!deletingRouteList.value || deletingRouteList.value.length === 0) return
+
+  if (!window.go || !window.go.main || !window.go.main.App) {
+    showMessage("error", 'Wails 运行时未就绪')
+    return
+  }
+  try {
+    let successCount = 0
+    for (const route of deletingRouteList.value) {
+      await window.go.main.App.DeleteRoute(route.id)
+      successCount++
+    }
+    showMessage("success", t('deleteRoute.deleted') + ` (${successCount} ${t('models.modelCount')})`)
+    showDeleteDialog.value = false
+    deletingRouteList.value = []
     loadRoutes()
     loadStats()
   } catch (error) {
@@ -2131,6 +2230,36 @@ const confirmClearStats = async () => {
     await loadModelRanking()
   } catch (error) {
     showMessage("error", t('stats.clearFailed') + ': ' + error)
+  }
+}
+
+// 显示压缩数据确认对话框
+const handleCompressStats = () => {
+  showCompressDialog.value = true
+}
+
+// 确认压缩统计数据（同一天同模型合并）
+const confirmCompressStats = async () => {
+  if (!window.go || !window.go.main || !window.go.main.App) {
+    showMessage("error", 'Wails 运行时未就绪')
+    return
+  }
+
+  compressingStats.value = true
+  try {
+    const deletedCount = await window.go.main.App.CompressRequestLogs()
+    showMessage("success", t('stats.compressSuccess', { count: deletedCount }))
+    showCompressDialog.value = false
+
+    // 重新加载数据
+    await loadStats()
+    await loadDailyStats()
+    await loadHourlyStats()
+    await loadModelRanking()
+  } catch (error) {
+    showMessage("error", t('stats.compressFailed') + ': ' + error)
+  } finally {
+    compressingStats.value = false
   }
 }
 
