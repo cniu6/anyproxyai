@@ -108,39 +108,31 @@
       style="margin-bottom: 16px;"
     />
     <n-scrollbar style="max-height: 450px;">
-      <n-grid :x-gap="12" :y-gap="12" :cols="2">
+      <n-grid :x-gap="8" :y-gap="8" :cols="3">
         <n-grid-item
           v-for="model in filteredModels"
           :key="model"
         >
-          <n-card
-            :title="model"
+          <div
             hoverable
             @click="toggleModelSelection(model)"
-            style="cursor: pointer; transition: all 0.3s;"
+            class="model-card"
             :class="{'selected-model-card': isModelSelected(model)}"
           >
-            <template #header>
-              <n-ellipsis style="max-width: 100%;" :tooltip="{ width: 300 }">
-                <n-space align="center" justify="space-between">
-                  <n-text strong>{{ model }}</n-text>
-                  <n-checkbox
-                    :checked="isModelSelected(model)"
-                    @update:checked="() => toggleModelSelection(model)"
-                    @click.stop
-                  />
-                </n-space>
+            <div class="model-card-header">
+              <n-ellipsis style="flex: 1;" :tooltip="{ width: 300 }">
+                <n-text strong style="font-size: 13px;">{{ model }}</n-text>
               </n-ellipsis>
-            </template>
-            <n-space vertical size="small">
-              <n-tag :type="getModelTagType(model)" size="small">
-                {{ getModelProvider(model) }}
-              </n-tag>
-              <n-text depth="3" style="font-size: 12px;">
-                {{ t('addRoute.clickToToggle') }}
-              </n-text>
-            </n-space>
-          </n-card>
+              <n-checkbox
+                :checked="isModelSelected(model)"
+                @update:checked="() => toggleModelSelection(model)"
+                @click.stop
+              />
+            </div>
+            <n-tag :type="getModelTagType(model)" size="small" style="margin-top: 6px;">
+              {{ getModelProvider(model) }}
+            </n-tag>
+          </div>
         </n-grid-item>
       </n-grid>
       <n-empty
@@ -711,13 +703,35 @@ const getModelTagType = (model) => {
 </script>
 
 <style scoped>
+.model-card {
+  padding: 10px 12px;
+  border: 2px solid #333;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--n-card-color);
+}
+
+.model-card:hover {
+  border-color: #18a058;
+  background: var(--n-hover-color);
+}
+
 .selected-model-card {
   border: 2px solid #18a058 !important;
-  box-shadow: 0 0 10px rgba(24, 160, 88, 0.3) !important;
+  background: var(--n-hover-color) !important;
+  box-shadow: 0 2px 8px rgba(24, 160, 88, 0.25) !important;
 }
 
 .selected-model-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(24, 160, 88, 0.4) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px rgba(24, 160, 88, 0.35) !important;
+}
+
+.model-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 </style>

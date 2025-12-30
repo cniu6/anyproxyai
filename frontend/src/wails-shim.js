@@ -44,6 +44,7 @@ const createWailsShim = () => {
     GetHourlyStats: () => callService('GetHourlyStats'),
     GetModelRanking: (limit) => callService('GetModelRanking', limit),
     ClearStats: () => callService('ClearStats'),
+    CompressRequestLogs: () => callService('CompressRequestLogs'),
     
     // Configuration
     GetConfig: () => callService('GetConfig'),

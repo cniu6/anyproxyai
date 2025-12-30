@@ -172,6 +172,10 @@ export const clearStats = async (): Promise<void> => {
   return callService<void>('ClearStats')
 }
 
+export const compressRequestLogs = async (): Promise<number> => {
+  return callService<number>('CompressRequestLogs')
+}
+
 // Configuration
 export const getConfig = async (): Promise<Config> => {
   return callService<Config>('GetConfig')
