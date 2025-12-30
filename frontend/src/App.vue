@@ -1127,7 +1127,10 @@ const onRouteNameChange = (value) => {
 }
 
 // 打开编辑转发规则弹窗
-const openEditForwardingModal = (rule) => {
+const openEditForwardingModal = async (rule) => {
+  // 先加载最新的路由列表
+  await loadAvailableRoutesForForwarding()
+
   editingForwardingRule.value = {
     route_id: rule.id,
     source_model: rule.source_model,
