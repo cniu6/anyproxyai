@@ -429,14 +429,3 @@ func (a *AppService) HasMultiModelRoutes() (bool, error) {
 	return a.RouteService.HasMultiModelRoutes()
 }
 
-// CompressRequestLogs 压缩请求日志（同一天同模型合并）
-func (a *AppService) CompressRequestLogs() (int, error) {
-	count, err := a.RouteService.CompressRequestLogs()
-	if err != nil {
-		log.Errorf("Failed to compress request logs: %v", err)
-		return 0, fmt.Errorf("failed to compress request logs: %v", err)
-	}
-	log.Infof("Request logs compressed successfully, deleted %d records", count)
-	return count, nil
-}
-

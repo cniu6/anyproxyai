@@ -88,3 +88,13 @@ frontend/pnpm-lock.yaml
 frontend/.env
 frontend/.env.local
 frontend/.env.*.local
+
+# Development scripts (local use only)
+dev.bat
+dev.sh
+quick-build.bat
+quick-build.sh
+build-release.bat
+build-optimized.bat
+compress-upx.bat
+generate_test_logs.py

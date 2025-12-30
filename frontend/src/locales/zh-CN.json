@@ -160,7 +160,6 @@
   "stats": {
     "todayStats": "今日消耗统计",
     "clearData": "清空数据",
-    "compressData": "压缩数据",
     "todayTokens": "今日 Token 消耗",
     "todayRequests": "今日请求数",
     "totalTokens": "总 Token 消耗",
@@ -188,12 +187,7 @@
     "tokens": "Token",
     "requestCount": "请求",
     "clearSuccess": "统计数据已清空",
-    "clearFailed": "清空失败",
-    "compressSuccess": "数据已压缩，删除了 {count} 条重复记录",
-    "compressFailed": "压缩失败",
-    "compressConfirmTitle": "确认压缩数据",
-    "compressConfirmMessage": "确定要压缩数据吗？压缩后将合并同一天同一模型的多次请求记录。",
-    "compressWarning": "⚠️ 注意：压缩后，单次请求的次数统计将丢失，仅保留合并后的总次数。"
+    "clearFailed": "清空失败"
   },
   "settings": {
     "title": "应用设置",

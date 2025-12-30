@@ -24,7 +24,7 @@ type ModelRoute struct {
 	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-// RequestLog 请求日志表结构
+// RequestLog 请求日志表结构（按小时聚合）
 type RequestLog struct {
 	ID             int64     `json:"id"`
 	Model          string    `json:"model"`
@@ -32,6 +32,7 @@ type RequestLog struct {
 	RequestTokens  int       `json:"request_tokens"`
 	ResponseTokens int       `json:"response_tokens"`
 	TotalTokens    int       `json:"total_tokens"`
+	RequestCount   int       `json:"request_count"` // 请求次数
 	Success        bool      `json:"success"`
 	ErrorMessage   string    `json:"error_message"`
 	CreatedAt      time.Time `json:"created_at"`
@@ -81,12 +82,14 @@ func createTables(db *sql.DB) error {
 		request_tokens INTEGER DEFAULT 0,
 		response_tokens INTEGER DEFAULT 0,
 		total_tokens INTEGER DEFAULT 0,
+		request_count INTEGER DEFAULT 1,
 		success INTEGER DEFAULT 1,
 		error_message TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (route_id) REFERENCES model_routes(id) ON DELETE SET NULL
 	);
 
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_model_hour ON request_logs(model, substr(created_at, 1, 13));
 	CREATE INDEX IF NOT EXISTS idx_request_logs_model ON request_logs(model);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_route_id ON request_logs(route_id);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(created_at);
@@ -124,6 +127,19 @@ func createTables(db *sql.DB) error {
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_model_routes_name_model ON model_routes(name, model);
 	`
 	db.Exec(uniqueConstraintMigration)
+
+	// 添加 request_count 列（如果不存在）- 数据库迁移
+	requestCountMigration := `
+	ALTER TABLE request_logs ADD COLUMN request_count INTEGER DEFAULT 1;
+	`
+	// 忽略错误，因为列可能已经存在
+	db.Exec(requestCountMigration)
+
+	// 创建按小时聚合的唯一索引（如果不存在）
+	hourlyIndexMigration := `
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_request_logs_model_hour ON request_logs(model, substr(created_at, 1, 13));
+	`
+	db.Exec(hourlyIndexMigration)
 
 	return nil
 }

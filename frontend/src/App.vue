@@ -382,20 +382,12 @@
             <!-- 今日消耗统计卡片 -->
             <n-card :title="'📊 ' + t('stats.todayStats')" :bordered="false">
               <template #header-extra>
-                <n-space>
-                  <n-button type="info" quaternary @click="handleCompressStats" :loading="compressingStats">
-                    <template #icon>
-                      <n-icon><CompressionIcon /></n-icon>
-                    </template>
-                    {{ t('stats.compressData') }}
-                  </n-button>
-                  <n-button type="error" quaternary @click="showClearStatsDialog">
-                    <template #icon>
-                      <n-icon><TrashIcon /></n-icon>
-                    </template>
-                    {{ t('stats.clearData') }}
-                  </n-button>
-                </n-space>
+                <n-button type="error" quaternary @click="showClearStatsDialog">
+                  <template #icon>
+                    <n-icon><TrashIcon /></n-icon>
+                  </template>
+                  {{ t('stats.clearData') }}
+                </n-button>
               </template>
               <n-grid :cols="4" :x-gap="16">
                 <n-grid-item>
@@ -815,26 +807,6 @@
     </n-modal>
 
     <!-- Compress Data Confirmation Dialog -->
-    <n-modal
-      v-model:show="showCompressDialog"
-      preset="dialog"
-      :title="t('stats.compressConfirmTitle')"
-      type="warning"
-      :positive-text="t('deleteRoute.confirm')"
-      :negative-text="t('deleteRoute.cancel')"
-      @positive-click="confirmCompressStats"
-      @negative-click="showCompressDialog = false"
-    >
-      <template #icon>
-        <n-icon size="24" color="#f0a020">
-          <CompressionIcon />
-        </n-icon>
-      </template>
-      {{ t('stats.compressConfirmMessage') }}
-      <br>
-      <br>
-      <strong>{{ t('stats.compressWarning') }}</strong>
-    </n-modal>
   </n-config-provider>
 </template>
 
@@ -876,7 +848,6 @@ import {
   Trash as TrashIcon,
   Language as LanguageIcon,
   CloseOutline as ClearIcon,
-  Contract as CompressionIcon,
 } from '@vicons/ionicons5'
 import AddRouteModal from './components/AddRouteModal.vue'
 import EditRouteModal from './components/EditRouteModal.vue'
@@ -1693,8 +1664,6 @@ const showRestartDialog = ref(false) // 重启确认对话框
 const showMigrationDialog = ref(false) // 数据迁移确认对话框
 const showDeleteDialog = ref(false) // 删除路由确认对话框
 const deletingRouteList = ref([]) // 正在删除的路由列表（同名下的所有路由）
-const showCompressDialog = ref(false) // 压缩数据确认对话框
-const compressingStats = ref(false) // 压缩数据状态
 
 // Computed: 先按分组组织路由，再在分组内按名称组织
 const groupedRoutes = computed(() => {
@@ -2233,36 +2202,6 @@ const confirmClearStats = async () => {
     await loadModelRanking()
   } catch (error) {
     showMessage("error", t('stats.clearFailed') + ': ' + error)
-  }
-}
-
-// 显示压缩数据确认对话框
-const handleCompressStats = () => {
-  showCompressDialog.value = true
-}
-
-// 确认压缩统计数据（同一天同模型合并）
-const confirmCompressStats = async () => {
-  if (!window.go || !window.go.main || !window.go.main.App) {
-    showMessage("error", 'Wails 运行时未就绪')
-    return
-  }
-
-  compressingStats.value = true
-  try {
-    const deletedCount = await window.go.main.App.CompressRequestLogs()
-    showMessage("success", t('stats.compressSuccess', { count: deletedCount }))
-    showCompressDialog.value = false
-
-    // 重新加载数据
-    await loadStats()
-    await loadDailyStats()
-    await loadHourlyStats()
-    await loadModelRanking()
-  } catch (error) {
-    showMessage("error", t('stats.compressFailed') + ': ' + error)
-  } finally {
-    compressingStats.value = false
   }
 }
 

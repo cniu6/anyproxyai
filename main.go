@@ -127,6 +127,13 @@ func main() {
 	routeService := service.NewRouteService(db)
 	proxyService := service.NewProxyService(routeService, cfg)
 
+	// 自动压缩7天前的日志数据到天级别
+	log.Info("Checking for old logs to compress...")
+	if err := routeService.AutoCompressOldLogs(); err != nil {
+		log.Warnf("Failed to auto-compress old logs: %v", err)
+		// 不影响应用启动，仅记录警告
+	}
+
 	// 初始化开机自启动管理器
 	autoStart := system.NewAutoStart()
 

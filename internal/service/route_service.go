@@ -372,7 +372,7 @@ func (s *RouteService) GetStats() (map[string]interface{}, error) {
 
 	// 总请求数
 	var totalRequests int
-	err = s.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&totalRequests)
+	err = s.db.QueryRow("SELECT COALESCE(SUM(request_count), 0) FROM request_logs").Scan(&totalRequests)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +389,7 @@ func (s *RouteService) GetStats() (map[string]interface{}, error) {
 	// 今日请求数 - 直接比较日期字符串
 	var todayRequests int
 	err = s.db.QueryRow(`
-		SELECT COUNT(*) FROM request_logs 
+		SELECT COALESCE(SUM(request_count), 0) FROM request_logs
 		WHERE substr(created_at, 1, 10) = date('now', 'localtime')
 	`).Scan(&todayRequests)
 	if err != nil {
@@ -408,16 +408,16 @@ func (s *RouteService) GetStats() (map[string]interface{}, error) {
 	}
 	stats["today_tokens"] = todayTokens
 
-	// 成功率
-	var successCount int
-	err = s.db.QueryRow("SELECT COUNT(*) FROM request_logs WHERE success = 1").Scan(&successCount)
+	// 成功率 - 计算成功请求数占总请求数的比例
+	var successRequests int
+	err = s.db.QueryRow("SELECT COALESCE(SUM(CASE WHEN success = 1 THEN request_count ELSE 0 END), 0) FROM request_logs").Scan(&successRequests)
 	if err != nil {
 		return nil, err
 	}
 
 	successRate := 0.0
 	if totalRequests > 0 {
-		successRate = float64(successCount) / float64(totalRequests) * 100
+		successRate = float64(successRequests) / float64(totalRequests) * 100
 	}
 	stats["success_rate"] = successRate
 
@@ -427,19 +427,51 @@ func (s *RouteService) GetStats() (map[string]interface{}, error) {
 	return stats, nil
 }
 
-// LogRequest 记录请求日志
+// LogRequest 记录请求日志（按小时聚合）
 func (s *RouteService) LogRequest(model string, routeID int64, requestTokens, responseTokens, totalTokens int, success bool, errorMsg string) error {
-	// 使用 SQLite 的 datetime('now', 'localtime') 确保时区一致
-	query := `INSERT INTO request_logs (model, route_id, request_tokens, response_tokens, total_tokens, success, error_message, created_at)
-	          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))`
+	// 使用 SQLite 的 datetime('now', 'localtime') 确保时区一致，并按小时聚合
+	// 首先尝试更新现有记录（同一模型同一小时）
+	currentHour := time.Now().Format("2006-01-02 15:04:05")[:13] // "YYYY-MM-DD HH"
 
-	_, err := s.db.Exec(query, model, routeID, requestTokens, responseTokens, totalTokens, success, errorMsg)
+	updateQuery := `
+		UPDATE request_logs
+		SET request_tokens = request_tokens + ?,
+		    response_tokens = response_tokens + ?,
+		    total_tokens = total_tokens + ?,
+		    request_count = request_count + 1,
+		    success = success & ?,
+		    error_message = ?
+		WHERE model = ? AND substr(created_at, 1, 13) = ?
+	`
+
+	result, err := s.db.Exec(updateQuery, requestTokens, responseTokens, totalTokens, boolToInt(success), errorMsg, model, currentHour)
 	if err != nil {
-		log.Errorf("LogRequest error: %v", err)
-	} else {
-		log.Infof("LogRequest: model=%s, tokens=%d, success=%v", model, totalTokens, success)
+		log.Errorf("LogRequest update error: %v", err)
+		return err
 	}
-	return err
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// 没有现有记录，插入新记录
+		insertQuery := `INSERT INTO request_logs (model, route_id, request_tokens, response_tokens, total_tokens, request_count, success, error_message, created_at)
+		                VALUES (?, ?, ?, ?, ?, 1, ?, ?, datetime('now', 'localtime'))`
+		_, err = s.db.Exec(insertQuery, model, routeID, requestTokens, responseTokens, totalTokens, success, errorMsg)
+		if err != nil {
+			log.Errorf("LogRequest insert error: %v", err)
+			return err
+		}
+	}
+
+	log.Infof("LogRequest: model=%s, tokens=%d, success=%v", model, totalTokens, success)
+	return nil
+}
+
+// boolToInt 将布尔值转换为整数（用于 SQL 操作）
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // GetAvailableModels 获取所有可用的模型列表，返回带路由名前缀的模型
@@ -506,7 +538,7 @@ func (s *RouteService) GetTodayStats() (map[string]interface{}, error) {
 	// 今日请求数
 	var todayRequests int
 	err := s.db.QueryRow(`
-		SELECT COUNT(*) FROM request_logs 
+		SELECT COALESCE(SUM(request_count), 0) FROM request_logs
 		WHERE substr(created_at, 1, 10) = date('now', 'localtime')
 	`).Scan(&todayRequests)
 	if err != nil {
@@ -517,7 +549,7 @@ func (s *RouteService) GetTodayStats() (map[string]interface{}, error) {
 	// 今日Token消耗
 	var todayTokens int
 	err = s.db.QueryRow(`
-		SELECT COALESCE(SUM(total_tokens), 0) FROM request_logs 
+		SELECT COALESCE(SUM(total_tokens), 0) FROM request_logs
 		WHERE substr(created_at, 1, 10) = date('now', 'localtime')
 	`).Scan(&todayTokens)
 	if err != nil {
@@ -533,7 +565,7 @@ func (s *RouteService) GetDailyStats(days int) ([]map[string]interface{}, error)
 	query := `
 		SELECT
 			substr(created_at, 1, 10) as date,
-			COUNT(*) as requests,
+			COALESCE(SUM(request_count), 0) as requests,
 			COALESCE(SUM(request_tokens), 0) as request_tokens,
 			COALESCE(SUM(response_tokens), 0) as response_tokens,
 			COALESCE(SUM(total_tokens), 0) as total_tokens
@@ -578,7 +610,7 @@ func (s *RouteService) GetHourlyStats() ([]map[string]interface{}, error) {
 	query := `
 		SELECT
 			CAST(substr(created_at, 12, 2) AS INTEGER) as hour,
-			COUNT(*) as requests,
+			COALESCE(SUM(request_count), 0) as requests,
 			COALESCE(SUM(total_tokens), 0) as total_tokens,
 			COALESCE(SUM(request_tokens), 0) as request_tokens,
 			COALESCE(SUM(response_tokens), 0) as response_tokens
@@ -843,11 +875,11 @@ func (s *RouteService) GetModelRanking(limit int) ([]map[string]interface{}, err
 	query := `
 		SELECT
 			model,
-			COUNT(*) as requests,
+			COALESCE(SUM(request_count), 0) as requests,
 			COALESCE(SUM(request_tokens), 0) as request_tokens,
 			COALESCE(SUM(response_tokens), 0) as response_tokens,
 			COALESCE(SUM(total_tokens), 0) as total_tokens,
-			ROUND(AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END), 2) as success_rate
+			ROUND(CAST(SUM(CASE WHEN success = 1 THEN request_count ELSE 0 END) AS FLOAT) * 100.0 / NULLIF(SUM(request_count), 0), 2) as success_rate
 		FROM request_logs
 		GROUP BY model
 		ORDER BY total_tokens DESC
@@ -931,11 +963,32 @@ func (s *RouteService) HasMultiModelRoutes() (bool, error) {
 	return database.HasMultiModelRoutes(s.db)
 }
 
-// CompressRequestLogs 压缩请求日志（同一天同模型合并）
-func (s *RouteService) CompressRequestLogs() (int, error) {
-	// 1. 创建临时表存储压缩后的数据
+// AutoCompressOldLogs 自动压缩7天前的日志数据到天级别
+// 在应用启动时调用，将7天前的小时级别数据合并为天级别
+func (s *RouteService) AutoCompressOldLogs() error {
+	// 1. 查找7天前的数据（按小时记录的）
+	// 首先检查是否有需要压缩的数据
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(DISTINCT substr(created_at, 1, 10))
+		FROM request_logs
+		WHERE substr(created_at, 1, 10) < date('now', 'localtime', '-7 days')
+	`).Scan(&count)
+	if err != nil {
+		log.Errorf("Failed to check old logs: %v", err)
+		return err
+	}
+
+	if count == 0 {
+		log.Info("No old logs to compress")
+		return nil
+	}
+
+	log.Infof("Found %d days of old logs to compress", count)
+
+	// 2. 创建临时表存储7天前按天聚合后的数据
 	createTempTable := `
-		CREATE TEMPORARY TABLE compressed_logs AS
+		CREATE TEMPORARY TABLE daily_compressed_logs AS
 		SELECT
 			min(id) as id,
 			model,
@@ -943,54 +996,64 @@ func (s *RouteService) CompressRequestLogs() (int, error) {
 			SUM(request_tokens) as request_tokens,
 			SUM(response_tokens) as response_tokens,
 			SUM(total_tokens) as total_tokens,
+			SUM(request_count) as request_count,
 			MIN(CASE WHEN success = 0 THEN 0 ELSE 1 END) as success,
 			MAX(error_message) as error_message,
 			substr(created_at, 1, 10) || ' 00:00:00' as created_at
 		FROM request_logs
+		WHERE substr(created_at, 1, 10) < date('now', 'localtime', '-7 days')
 		GROUP BY model, substr(created_at, 1, 10)
 	`
 
-	_, err := s.db.Exec(createTempTable)
+	_, err = s.db.Exec(createTempTable)
 	if err != nil {
 		log.Errorf("Failed to create temp table for compression: %v", err)
-		return 0, err
+		return err
 	}
+	defer s.db.Exec("DROP TABLE IF EXISTS daily_compressed_logs")
 
-	// 2. 获取压缩前的记录数
+	// 3. 获取压缩前的记录数
 	var beforeCount int
-	err = s.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&beforeCount)
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM request_logs
+		WHERE substr(created_at, 1, 10) < date('now', 'localtime', '-7 days')
+	`).Scan(&beforeCount)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	// 3. 删除原表数据
-	_, err = s.db.Exec("DELETE FROM request_logs")
+	// 4. 删除7天前的原数据
+	_, err = s.db.Exec(`
+		DELETE FROM request_logs
+		WHERE substr(created_at, 1, 10) < date('now', 'localtime', '-7 days')
+	`)
 	if err != nil {
-		log.Errorf("Failed to delete original logs: %v", err)
-		return 0, err
+		log.Errorf("Failed to delete old logs: %v", err)
+		return err
 	}
 
-	// 4. 从临时表插入压缩后的数据
+	// 5. 从临时表插入压缩后的数据
 	insertCompressed := `
-		INSERT INTO request_logs (id, model, route_id, request_tokens, response_tokens, total_tokens, success, error_message, created_at)
-		SELECT id, model, route_id, request_tokens, response_tokens, total_tokens, success, error_message, created_at
-		FROM compressed_logs
+		INSERT INTO request_logs (id, model, route_id, request_tokens, response_tokens, total_tokens, request_count, success, error_message, created_at)
+		SELECT id, model, route_id, request_tokens, response_tokens, total_tokens, request_count, success, error_message, created_at
+		FROM daily_compressed_logs
 	`
 
 	_, err = s.db.Exec(insertCompressed)
 	if err != nil {
 		log.Errorf("Failed to insert compressed logs: %v", err)
-		return 0, err
+		return err
 	}
-
-	// 5. 删除临时表
-	s.db.Exec("DROP TABLE compressed_logs")
 
 	// 6. 获取压缩后的记录数
 	var afterCount int
-	err = s.db.QueryRow("SELECT COUNT(*) FROM request_logs").Scan(&afterCount)
+	err = s.db.QueryRow(`
+		SELECT COUNT(*) FROM request_logs
+		WHERE substr(created_at, 1, 10) < date('now', 'localtime', '-7 days')
+	`).Scan(&afterCount)
 	if err != nil {
-		return beforeCount - afterCount, nil
+		log.Warnf("Failed to count compressed logs: %v", err)
+		afterCount = 0
 	}
 
 	// 7. 执行 VACUUM 释放数据库空间
@@ -1002,8 +1065,8 @@ func (s *RouteService) CompressRequestLogs() (int, error) {
 	}
 
 	deletedCount := beforeCount - afterCount
-	log.Infof("Request logs compressed: %d -> %d (deleted %d records)", beforeCount, afterCount, deletedCount)
-	return deletedCount, nil
+	log.Infof("Old logs auto-compressed: %d -> %d days (reduced %d hourly records to daily)", beforeCount, afterCount, deletedCount)
+	return nil
 }
 
 // GetRouteByForwarding 通过路由的 target_route_id 字段获取目标路由
