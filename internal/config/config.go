@@ -22,7 +22,10 @@ type Config struct {
 	AutoStart             bool   `json:"auto_start"`
 	EnableFileLog         bool   `json:"enable_file_log"`
 	Language              string `json:"language"`
-	configPath            string
+	// proxy_auto 虚拟模型配置
+	ProxyAutoPrimaryRouteID int64  `json:"proxy_auto_primary_route_id"`
+	ProxyAutoBackupRouteID  int64  `json:"proxy_auto_backup_route_id"`
+	configPath              string
 }
 
 func LoadConfig() *Config {

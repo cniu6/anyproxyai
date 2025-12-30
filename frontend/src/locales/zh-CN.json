@@ -123,8 +123,6 @@
     "openaiPath": "OpenAI 兼容接口路径",
     "translationInterface": "翻译 API 接口",
     "translationInterfaceDesc": "用于将 OpenAI SDK 格式转换为对应格式",
-    "claudeCodeInterface": "Claude Code 专用接口",
-    "claudeCodePath": "Claude Code 接口路径（拼接工具链）（支持流）",
     "anthropicInterface": "Anthropic API（CherryStudio等）",
     "anthropicPath": "Anthropic 接口路径",
     "geminiInterface": "Gemini API",

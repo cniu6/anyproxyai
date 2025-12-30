@@ -123,8 +123,6 @@
     "openaiPath": "OpenAI compatible endpoint path",
     "translationInterface": "Translation API Interface",
     "translationInterfaceDesc": "Converts OpenAI SDK format to corresponding formats",
-    "claudeCodeInterface": "Claude Code Interface",
-    "claudeCodePath": "Claude Code endpoint path (with tool chain) (streaming supported)",
     "anthropicInterface": "Anthropic API (CherryStudio, etc.)",
     "anthropicPath": "Anthropic endpoint path",
     "geminiInterface": "Gemini API",

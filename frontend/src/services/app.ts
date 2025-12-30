@@ -72,6 +72,22 @@ export interface ModelRanking {
   success_rate: number
 }
 
+// Proxy auto state types
+export interface ProxyAutoState {
+  primary_route_id: number
+  backup_route_id: number
+  current_route_id: number
+  failover_count: number
+  last_failover_time: string
+  last_fail_reason: string
+  primary_route_name: string
+  backup_route_name: string
+  current_route_name: string
+  primary_route_model: string
+  backup_route_model: string
+  current_route_model: string
+}
+
 
 // Service name prefix for Wails v3: module/package.struct
 const SERVICE = 'openai-router-go/services.AppService'
@@ -170,6 +186,19 @@ export const getModelRanking = async (limit: number): Promise<ModelRanking[]> =>
 
 export const clearStats = async (): Promise<void> => {
   return callService<void>('ClearStats')
+}
+
+// Proxy auto state management
+export const getProxyAutoState = async (): Promise<ProxyAutoState> => {
+  return callService<ProxyAutoState>('GetProxyAutoState')
+}
+
+export const resetProxyAuto = async (): Promise<void> => {
+  return callService<void>('ResetProxyAuto')
+}
+
+export const setProxyAutoRoutes = async (primaryRouteId: number, backupRouteId: number): Promise<void> => {
+  return callService<void>('SetProxyAutoRoutes', primaryRouteId, backupRouteId)
 }
 
 // Configuration

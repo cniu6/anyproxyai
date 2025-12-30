@@ -5,19 +5,40 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"openai-router-go/internal/config"
 	"openai-router-go/internal/database"
 
 	log "github.com/sirupsen/logrus"
 )
 
 type RouteService struct {
-	db *sql.DB
+	db     *sql.DB
+	cfg    *config.Config
+	mu     sync.RWMutex
+	// 运行时状态（不在配置中保存）
+	currentRouteID   int64
+	failoverCount    int
+	lastFailoverTime time.Time
+	lastFailReason   string
 }
 
-func NewRouteService(db *sql.DB) *RouteService {
-	return &RouteService{db: db}
+func NewRouteService(db *sql.DB, cfg *config.Config) *RouteService {
+	s := &RouteService{
+		db:  db,
+		cfg: cfg,
+		currentRouteID:   cfg.ProxyAutoPrimaryRouteID,
+		failoverCount:    0,
+		lastFailoverTime: time.Time{},
+		lastFailReason:   "",
+	}
+	// 如果配置了主路由但未设置当前路由，则使用主路由
+	if s.currentRouteID == 0 && cfg.ProxyAutoPrimaryRouteID > 0 {
+		s.currentRouteID = cfg.ProxyAutoPrimaryRouteID
+	}
+	return s
 }
 
 // GetAllRoutes 获取所有路由
@@ -496,6 +517,9 @@ func (s *RouteService) GetAvailableModels() ([]string, error) {
 		models = append(models, renamedModel)
 	}
 
+	// 添加虚拟模型 proxy_auto（硬编码）
+	models = append(models, "proxy_auto")
+
 	sort.Strings(models)
 	return models, nil
 }
@@ -526,6 +550,9 @@ func (s *RouteService) GetAvailableModelsWithRedirect(redirectKeyword string) ([
 		renamedModel := fmt.Sprintf("%s/%s", routeName, model)
 		models = append(models, renamedModel)
 	}
+
+	// 添加虚拟模型 proxy_auto（硬编码）
+	models = append(models, "proxy_auto")
 
 	sort.Strings(models)
 	return models, nil
@@ -1117,6 +1144,57 @@ func (s *RouteService) GetRouteByForwarding(model string) (*database.ModelRoute,
 		}
 	}
 
+	// 处理虚拟模型 proxy_auto
+	if model == "proxy_auto" {
+		log.Infof("Virtual model proxy_auto requested, using failover state...")
+		s.mu.RLock()
+		currentRouteID := s.currentRouteID
+		primaryRouteID := s.cfg.ProxyAutoPrimaryRouteID
+		s.mu.RUnlock()
+
+		// 如果配置了主路由，使用配置的路由
+		if primaryRouteID > 0 {
+			// 如果当前路由为0，初始化为主路由
+			if currentRouteID == 0 {
+				s.mu.Lock()
+				s.currentRouteID = primaryRouteID
+				currentRouteID = primaryRouteID
+				s.mu.Unlock()
+			}
+		} else {
+			// 如果没有配置主路由，随机选择一个
+			if currentRouteID == 0 {
+				if err := s.InitProxyAutoState(); err != nil {
+					return nil, fmt.Errorf("failed to initialize proxy_auto state: %v", err)
+				}
+				s.mu.RLock()
+				currentRouteID = s.currentRouteID
+				s.mu.RUnlock()
+			}
+		}
+
+		query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
+		          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
+		          FROM model_routes WHERE id = ? AND enabled = 1`
+		err = s.db.QueryRow(query, currentRouteID).Scan(&route.ID, &route.Name, &route.Model, &route.APIUrl,
+			&route.APIKey, &route.Group, &route.Format, &route.Enabled, &route.TargetRouteID, &route.ForwardingEnabled, &route.CreatedAt, &route.UpdatedAt)
+
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("proxy_auto current route not found or disabled: id=%d", currentRouteID)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		s.mu.RLock()
+		isBackup := currentRouteID != s.cfg.ProxyAutoPrimaryRouteID
+		s.mu.RUnlock()
+
+		log.Infof("proxy_auto using route: %s (id=%d, model=%s, is_backup=%v)",
+			route.Name, route.ID, route.Model, isBackup)
+		return &route, nil
+	}
+
 	// 如果不是带前缀的格式，或者通过路由名查找失败，则按模型名查找
 	query := `SELECT id, name, model, api_url, api_key, "group", COALESCE(format, 'openai'), enabled,
 	          COALESCE(target_route_id, 0), COALESCE(forwarding_enabled, 0), created_at, updated_at
@@ -1151,5 +1229,172 @@ func (s *RouteService) GetRouteByForwarding(model string) (*database.ModelRoute,
 			route.ID, route.TargetRouteID)
 	}
 	return &route, nil
+}
+
+// InitProxyAutoState 初始化 proxy_auto 的故障切换状态
+// 随机选择2个可用路由作为主路由和备用路由，并保存到配置
+func (s *RouteService) InitProxyAutoState() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	query := `SELECT id, name, model FROM model_routes WHERE enabled = 1 ORDER BY RANDOM() LIMIT 2`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var routeIDs []int64
+	for rows.Next() {
+		var id int64
+		var name, model string
+		if err := rows.Scan(&id, &name, &model); err != nil {
+			return err
+		}
+		routeIDs = append(routeIDs, id)
+	}
+
+	if len(routeIDs) == 0 {
+		return fmt.Errorf("no available routes for proxy_auto")
+	}
+
+	s.cfg.ProxyAutoPrimaryRouteID = routeIDs[0]
+	s.currentRouteID = routeIDs[0]
+	if len(routeIDs) >= 2 {
+		s.cfg.ProxyAutoBackupRouteID = routeIDs[1]
+	} else {
+		s.cfg.ProxyAutoBackupRouteID = routeIDs[0]
+	}
+
+	// 保存配置到文件
+	if err := s.cfg.Save(); err != nil {
+		log.Errorf("Failed to save proxy_auto config: %v", err)
+	}
+
+	log.Infof("proxy_auto state initialized: primary=%d, backup=%d, current=%d",
+		s.cfg.ProxyAutoPrimaryRouteID, s.cfg.ProxyAutoBackupRouteID, s.currentRouteID)
+	return nil
+}
+
+// GetProxyAutoState 获取 proxy_auto 的故障切换状态
+func (s *RouteService) GetProxyAutoState() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	primaryRoute, _ := s.GetRouteByID(s.cfg.ProxyAutoPrimaryRouteID)
+	backupRoute, _ := s.GetRouteByID(s.cfg.ProxyAutoBackupRouteID)
+	currentRoute, _ := s.GetRouteByID(s.currentRouteID)
+
+	result := map[string]interface{}{
+		"primary_route_id":    s.cfg.ProxyAutoPrimaryRouteID,
+		"backup_route_id":     s.cfg.ProxyAutoBackupRouteID,
+		"current_route_id":    s.currentRouteID,
+		"failover_count":      s.failoverCount,
+		"last_failover_time":  s.lastFailoverTime,
+		"last_fail_reason":    s.lastFailReason,
+		"primary_route_name":  "",
+		"backup_route_name":   "",
+		"current_route_name":  "",
+		"primary_route_model": "",
+		"backup_route_model":  "",
+		"current_route_model": "",
+	}
+
+	if primaryRoute != nil {
+		result["primary_route_name"] = primaryRoute.Name
+		result["primary_route_model"] = primaryRoute.Model
+	}
+	if backupRoute != nil {
+		result["backup_route_name"] = backupRoute.Name
+		result["backup_route_model"] = backupRoute.Model
+	}
+	if currentRoute != nil {
+		result["current_route_name"] = currentRoute.Name
+		result["current_route_model"] = currentRoute.Model
+	}
+
+	return result
+}
+
+// FailoverProxyAuto 切换 proxy_auto 到备用路由
+func (s *RouteService) FailoverProxyAuto(reason string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.cfg.ProxyAutoBackupRouteID == 0 {
+		return fmt.Errorf("no backup route configured for proxy_auto")
+	}
+
+	// 切换到备用路由
+	s.currentRouteID = s.cfg.ProxyAutoBackupRouteID
+	s.failoverCount++
+	s.lastFailoverTime = time.Now()
+	s.lastFailReason = reason
+
+	log.Warnf("proxy_auto failover triggered: current=%d (reason: %s), failover_count=%d",
+		s.currentRouteID, reason, s.failoverCount)
+	return nil
+}
+
+// ResetProxyAuto 重置 proxy_auto 到默认路由
+func (s *RouteService) ResetProxyAuto() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.cfg.ProxyAutoPrimaryRouteID == 0 {
+		return fmt.Errorf("proxy_auto state not initialized")
+	}
+
+	s.currentRouteID = s.cfg.ProxyAutoPrimaryRouteID
+	s.failoverCount = 0
+	s.lastFailoverTime = time.Time{}
+	s.lastFailReason = ""
+
+	log.Infof("proxy_auto reset to primary route: %d", s.cfg.ProxyAutoPrimaryRouteID)
+	return nil
+}
+
+// SetProxyAutoRoutes 设置 proxy_auto 的主路由和备用路由
+// 允许传入 0 来取消选择
+func (s *RouteService) SetProxyAutoRoutes(primaryRouteID, backupRouteID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 验证主路由存在（如果提供了）
+	if primaryRouteID > 0 {
+		primaryRoute, err := s.GetRouteByID(primaryRouteID)
+		if err != nil {
+			return fmt.Errorf("primary route not found: %v", err)
+		}
+		log.Infof("Setting proxy_auto primary route: %s (%d)", primaryRoute.Name, primaryRouteID)
+	}
+
+	// 验证备用路由存在（如果提供了）
+	if backupRouteID > 0 {
+		_, err := s.GetRouteByID(backupRouteID)
+		if err != nil {
+			return fmt.Errorf("backup route not found: %v", err)
+		}
+	}
+
+	// 设置新路由
+	s.cfg.ProxyAutoPrimaryRouteID = primaryRouteID
+	s.cfg.ProxyAutoBackupRouteID = backupRouteID
+	s.currentRouteID = primaryRouteID
+	s.failoverCount = 0
+	s.lastFailoverTime = time.Time{}
+	s.lastFailReason = ""
+
+	// 保存配置到文件
+	if err := s.cfg.Save(); err != nil {
+		log.Errorf("Failed to save proxy_auto config: %v", err)
+		return err
+	}
+
+	log.Infof("proxy_auto routes saved: primary=%d, backup=%d",
+		primaryRouteID, backupRouteID)
+
+	return nil
 }
 

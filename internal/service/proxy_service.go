@@ -97,19 +97,20 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 	log.Infof("Request body: %s", string(requestBody))
 	log.Infof("=== PROXY REQUEST DETAILS ===")
 
-	// 提取真实的模型名（处�?Gemini streamGenerateContent 的情况）
+	// 提取真实的模型名（处理 Gemini streamGenerateContent 的情况）
 	realModel := model
 	if strings.Contains(model, ":streamGenerateContent") {
 		realModel = strings.TrimSuffix(model, ":streamGenerateContent")
 	}
 
-	// 首先检查是否是重定向关键字（支持带后缀的模型名�?
+	// 首先检查是否是重定向关键字（支持带后缀的模型名）
 	var route *database.ModelRoute
 	var err error
 	isRedirect := s.config.RedirectEnabled && (realModel == s.config.RedirectKeyword || strings.HasPrefix(realModel, s.config.RedirectKeyword+":"))
+	isProxyAuto := realModel == "proxy_auto"
 
 	if isRedirect {
-		// 使用重定向路�?
+		// 使用重定向路由
 		route, err = s.getRedirectRoute()
 		if err != nil {
 			return nil, http.StatusNotFound, fmt.Errorf("redirect target not configured or not found: %v", err)
@@ -136,12 +137,41 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 		}
 	}
 
-	// 检查是否需要进�?API 转换
+	// 执行请求，支持 proxy_auto 的故障切换
+	responseBody, statusCode, err := s.doProxyRequest(reqData, requestBody, headers, route, model, isProxyAuto)
+	if err != nil && isProxyAuto {
+		// proxy_auto 请求失败，尝试切换到备用路由
+		log.Warnf("proxy_auto request failed, attempting failover...")
+		failoverErr := s.routeService.FailoverProxyAuto(err.Error())
+		if failoverErr != nil {
+			log.Errorf("Failed to failover proxy_auto: %v", failoverErr)
+			return responseBody, statusCode, err
+		}
+
+		// 重新获取路由
+		route, err = s.routeService.GetRouteByForwarding(model)
+		if err != nil {
+			return nil, http.StatusServiceUnavailable, fmt.Errorf("failed to get failover route: %v", err)
+		}
+
+		// 更新请求体中的模型名
+		reqData["model"] = route.Model
+		requestBody, _ = json.Marshal(reqData)
+
+		log.Infof("Retrying proxy_auto request with failover route: %s", route.Name)
+		return s.doProxyRequest(reqData, requestBody, headers, route, model, false)
+	}
+
+	return responseBody, statusCode, err
+}
+
+// doProxyRequest 执行实际的代理请求
+func (s *ProxyService) doProxyRequest(reqData map[string]interface{}, requestBody []byte, headers map[string]string, route *database.ModelRoute, model string, isProxyAuto bool) ([]byte, int, error) {
+	// 检查是否需要进行 API 转换
 	var transformedBody []byte
 	var targetURL string
 
 	// 不移除末尾斜杠，保留原始URL格式
-	// 如果API URL末尾有斜杠，说明是固定路径，buildAdapterURL会正确处理
 	cleanAPIUrl := route.APIUrl
 
 	// 智能检测适配器 基于路由format和请求格式 (OpenAI格式请求)
@@ -149,7 +179,6 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 	if adapterName != "" {
 		// 使用适配器转换请求
 		adapter := adapters.GetAdapter(adapterName)
-		// 使用 route.Model（已去除前缀的原始模型名）来适配请求
 		transformedReq, err := adapter.AdaptRequest(reqData, route.Model)
 		if err != nil {
 			log.Errorf("Failed to adapt request: %v", err)
@@ -163,7 +192,7 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 		targetURL = buildOpenAIChatURL(route.APIUrl)
 	}
 
-	// 详细日志：记录目标路由信�?
+	// 详细日志：记录目标路由信息
 	log.Infof("=== ROUTE TARGET ===")
 	log.Infof("Target URL: %s", targetURL)
 	log.Infof("Route name: %s", route.Name)
@@ -172,8 +201,9 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 	log.Infof("Route format: %s", route.Format)
 	log.Infof("Route group: %s", route.Group)
 	log.Infof("Route enabled: %v", route.Enabled)
-	log.Infof("Adapter used: %s", adapterName)
-	log.Infof("Transformed body: %s", string(transformedBody))
+	if isProxyAuto {
+		log.Infof("proxy_auto mode: true")
+	}
 	log.Infof("=== ROUTE TARGET END ===")
 
 	log.Infof("Routing to: %s (route: %s)", targetURL, route.Name)
@@ -184,45 +214,41 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 		return nil, http.StatusInternalServerError, err
 	}
 
-	// 设置请求�?
+	// 设置请求头
 	proxyReq.Header.Set("Content-Type", "application/json")
 
-	// 使用路由配置�?API Key（如果有），否则透传原始 Authorization
+	// 使用路由配置的 API Key（如果有），否则透传原始 Authorization
 	if route.APIKey != "" {
 		proxyReq.Header.Set("Authorization", "Bearer "+route.APIKey)
 	} else if auth := headers["Authorization"]; auth != "" {
 		proxyReq.Header.Set("Authorization", auth)
 	}
 
-	// 发送请�?
+	// 发送请求
 	startTime := time.Now()
 	resp, err := s.httpClient.Do(proxyReq)
 	if err != nil {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, err.Error())
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, err.Error())
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("backend service unavailable: %v", err)
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, err.Error())
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, err.Error())
 		return nil, http.StatusInternalServerError, err
 	}
 
-	// 详细日志：记录返回结�?
+	// 详细日志：记录返回结果
 	log.Infof("=== RESPONSE RESULT ===")
 	log.Infof("Response status code: %d", resp.StatusCode)
 	log.Infof("Response time: %v", time.Since(startTime))
-	log.Infof("Response headers:")
-	for k, v := range resp.Header {
-		log.Infof("  %s: %v", k, v)
-	}
 	log.Infof("Response body: %s", string(responseBody))
 	log.Infof("=== RESPONSE RESULT END ===")
 
 	log.Infof("Response received from %s in %v, status: %d", route.Name, time.Since(startTime), resp.StatusCode)
 
-	// 记录使用情况（使用实际模型名而不是重定向关键字）
+	// 记录使用情况（使用实际路由的模型名而不是请求的模型名）
 	if resp.StatusCode == http.StatusOK {
 		var respData map[string]interface{}
 		if err := json.Unmarshal(responseBody, &respData); err == nil {
@@ -230,11 +256,11 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 				totalTokens := int(usage["total_tokens"].(float64))
 				promptTokens := int(usage["prompt_tokens"].(float64))
 				completionTokens := int(usage["completion_tokens"].(float64))
-				s.routeService.LogRequest(model, route.ID, promptTokens, completionTokens, totalTokens, true, "")
+				s.routeService.LogRequest(route.Model, route.ID, promptTokens, completionTokens, totalTokens, true, "")
 			}
 		}
 	} else {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, string(responseBody))
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, string(responseBody))
 	}
 
 	// 如果使用了适配器，转换响应
@@ -255,6 +281,11 @@ func (s *ProxyService) ProxyRequest(requestBody []byte, headers map[string]strin
 				log.Infof("=== ADAPTER TRANSFORMATION END ===")
 			}
 		}
+	}
+
+	// 如果响应状态码不是 2xx，返回错误以触发故障切换
+	if resp.StatusCode >= 400 {
+		return responseBody, resp.StatusCode, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(responseBody))
 	}
 
 	return responseBody, resp.StatusCode, nil
@@ -295,10 +326,11 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 		realModel = strings.TrimSuffix(model, ":streamGenerateContent")
 	}
 
-	// 首先检查是否是重定向关键字
+	// 首先检查是否是重定向关键字（支持带后缀的模型名）
 	var route *database.ModelRoute
 	var err error
 	isRedirect := s.config.RedirectEnabled && (realModel == s.config.RedirectKeyword || strings.HasPrefix(realModel, s.config.RedirectKeyword+":"))
+	isProxyAuto := realModel == "proxy_auto"
 
 	if isRedirect {
 		route, err = s.getRedirectRoute()
@@ -330,6 +362,36 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 		}
 	}
 
+	// 执行流式请求，支持 proxy_auto 的故障切换
+	streamErr := s.doProxyStreamRequest(reqData, requestBody, headers, route, model, isProxyAuto, writer, flusher)
+	if streamErr != nil && isProxyAuto {
+		// proxy_auto 请求失败，尝试切换到备用路由
+		log.Warnf("proxy_auto stream request failed, attempting failover...")
+		failoverErr := s.routeService.FailoverProxyAuto(streamErr.Error())
+		if failoverErr != nil {
+			log.Errorf("Failed to failover proxy_auto: %v", failoverErr)
+			return streamErr
+		}
+
+		// 重新获取路由
+		route, err = s.routeService.GetRouteByForwarding(model)
+		if err != nil {
+			return fmt.Errorf("failed to get failover route: %v", err)
+		}
+
+		// 更新请求体中的模型名
+		reqData["model"] = route.Model
+		requestBody, _ = json.Marshal(reqData)
+
+		log.Infof("Retrying proxy_auto stream request with failover route: %s", route.Name)
+		return s.doProxyStreamRequest(reqData, requestBody, headers, route, model, false, writer, flusher)
+	}
+
+	return streamErr
+}
+
+// doProxyStreamRequest 执行实际的流式代理请求
+func (s *ProxyService) doProxyStreamRequest(reqData map[string]interface{}, requestBody []byte, headers map[string]string, route *database.ModelRoute, model string, isProxyAuto bool, writer io.Writer, flusher http.Flusher) error {
 	// 不移除末尾斜杠，保留原始URL格式
 	// 如果API URL末尾有斜杠，说明是固定路径，buildAdapterURL会正确处理
 	cleanAPIUrl := route.APIUrl
@@ -375,6 +437,9 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 	log.Infof("Stream route group: %s", route.Group)
 	log.Infof("Stream route enabled: %v", route.Enabled)
 	log.Infof("Stream adapter used: %s", adapterName)
+	if isProxyAuto {
+		log.Infof("proxy_auto mode: true")
+	}
 	log.Infof("Stream transformed body: %s", string(transformedBody))
 	log.Infof("=== STREAM ROUTE TARGET END ===")
 
@@ -409,13 +474,13 @@ func (s *ProxyService) ProxyStreamRequest(requestBody []byte, headers map[string
 	}
 
 	// 流式传输响应
-	// 使用实际路由到的模型名（model）用于统�?
+	// 使用实际路由到的模型名（route.Model）用于统计
 	if adapterName != "" {
-		// 需要转换SSE�?
-		return s.streamWithAdapter(resp.Body, writer, flusher, adapterName, model, route.ID)
+		// 需要转换SSE流
+		return s.streamWithAdapter(resp.Body, writer, flusher, adapterName, route.Model, route.ID)
 	} else {
-		// 直接转发SSE�?
-		return s.streamDirect(resp.Body, writer, flusher, model, route.ID)
+		// 直接转发SSE流
+		return s.streamDirect(resp.Body, writer, flusher, route.Model, route.ID)
 	}
 }
 
@@ -570,7 +635,7 @@ func (s *ProxyService) ProxyStreamRequestWithAdapter(requestBody []byte, headers
 	}
 
 	// 需要转换SSE流，使用实际路由到的模型�?
-	return s.streamWithAdapter(resp.Body, writer, flusher, "openai-to-claude", model, route.ID)
+	return s.streamWithAdapter(resp.Body, writer, flusher, "openai-to-claude", route.Model, route.ID)
 }
 
 // ProxyStreamRequestWithClaudeConversion 代理流式请求，保持原始请求格式但将响应转换为 Claude 格式
@@ -680,7 +745,7 @@ func (s *ProxyService) ProxyStreamRequestWithClaudeConversion(requestBody []byte
 	}
 
 	// 需要转换SSE流，使用实际路由到的模型�?
-	return s.streamWithAdapter(resp.Body, writer, flusher, "openai-to-claude", model, route.ID)
+	return s.streamWithAdapter(resp.Body, writer, flusher, "openai-to-claude", route.Model, route.ID)
 }
 
 // ProxyAnthropicRequest 代理 Anthropic 专用请求，不转换响应格式
@@ -795,14 +860,14 @@ func (s *ProxyService) ProxyAnthropicRequest(requestBody []byte, headers map[str
 	startTime := time.Now()
 	resp, err := s.httpClient.Do(proxyReq)
 	if err != nil {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, err.Error())
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, err.Error())
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("backend service unavailable: %v", err)
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, err.Error())
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, err.Error())
 		return nil, http.StatusInternalServerError, err
 	}
 
@@ -823,7 +888,7 @@ func (s *ProxyService) ProxyAnthropicRequest(requestBody []byte, headers map[str
 					if ct, ok := usage["completion_tokens"].(float64); ok {
 						completionTokens = int(ct)
 					}
-					s.routeService.LogRequest(model, route.ID, promptTokens, completionTokens, int(totalTokens), true, "")
+					s.routeService.LogRequest(route.Model, route.ID, promptTokens, completionTokens, int(totalTokens), true, "")
 				}
 			}
 
@@ -843,7 +908,7 @@ func (s *ProxyService) ProxyAnthropicRequest(requestBody []byte, headers map[str
 			log.Errorf("Failed to unmarshal response body: %v", err)
 		}
 	} else {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, string(responseBody))
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, string(responseBody))
 	}
 
 	// 对于 Anthropic 上游或转换失败的情况，返回原始响�?
@@ -994,11 +1059,11 @@ func (s *ProxyService) ProxyAnthropicStreamRequest(requestBody []byte, headers m
 	if adapterName == "claude-to-openai" {
 		// 需要将 OpenAI 流式响应转换�?Claude 流式响应
 		log.Infof("[Anthropic Stream] Converting OpenAI stream response to Claude format")
-		return s.streamOpenAIToClaude(resp.Body, writer, flusher, model, route.ID)
+		return s.streamOpenAIToClaude(resp.Body, writer, flusher, route.Model, route.ID)
 	}
 
 	// 直接转发SSE流（目标�?Claude 格式，无需转换�?
-	return s.streamDirect(resp.Body, writer, flusher, model, route.ID)
+	return s.streamDirect(resp.Body, writer, flusher, route.Model, route.ID)
 }
 
 // streamWithAdapter 使用适配器处理流式响�?
@@ -2706,14 +2771,14 @@ func (s *ProxyService) ProxyClaudeCodeRequest(requestBody []byte, headers map[st
 	startTime := time.Now()
 	resp, err := s.httpClient.Do(proxyReq)
 	if err != nil {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, err.Error())
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, err.Error())
 		return nil, http.StatusServiceUnavailable, fmt.Errorf("backend service unavailable: %v", err)
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, err.Error())
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, err.Error())
 		return nil, http.StatusInternalServerError, err
 	}
 
@@ -2739,7 +2804,7 @@ func (s *ProxyService) ProxyClaudeCodeRequest(requestBody []byte, headers map[st
 					if tt, ok := usage["total_tokens"].(float64); ok {
 						totalTokens = int(tt)
 					}
-					s.routeService.LogRequest(model, route.ID, promptTokens, completionTokens, totalTokens, true, "")
+					s.routeService.LogRequest(route.Model, route.ID, promptTokens, completionTokens, totalTokens, true, "")
 				}
 
 				// �?OpenAI 响应转换�?Claude 格式
@@ -2767,14 +2832,14 @@ func (s *ProxyService) ProxyClaudeCodeRequest(requestBody []byte, headers map[st
 					if ot, ok := usage["output_tokens"].(float64); ok {
 						outputTokens = int(ot)
 					}
-					s.routeService.LogRequest(model, route.ID, inputTokens, outputTokens, inputTokens+outputTokens, true, "")
+					s.routeService.LogRequest(route.Model, route.ID, inputTokens, outputTokens, inputTokens+outputTokens, true, "")
 				}
 				// 直接返回 Claude 格式响应
 				return responseBody, resp.StatusCode, nil
 			}
 		}
 	} else {
-		s.routeService.LogRequest(model, route.ID, 0, 0, 0, false, string(responseBody))
+		s.routeService.LogRequest(route.Model, route.ID, 0, 0, 0, false, string(responseBody))
 	}
 
 	return responseBody, resp.StatusCode, nil
@@ -2912,11 +2977,11 @@ func (s *ProxyService) ProxyClaudeCodeStreamRequest(requestBody []byte, headers 
 	if needConvertResponse {
 		// �?OpenAI 流式响应转换�?Claude 流式响应
 		log.Infof("[Claude Code Stream] Converting OpenAI stream response to Claude format")
-		return s.streamOpenAIToClaudeCode(resp.Body, writer, flusher, model, route.ID)
+		return s.streamOpenAIToClaudeCode(resp.Body, writer, flusher, route.Model, route.ID)
 	} else {
 		// Claude 格式响应，直接透传
 		log.Infof("[Claude Code Stream] Passing through Claude stream response directly")
-		return s.streamDirect(resp.Body, writer, flusher, model, route.ID)
+		return s.streamDirect(resp.Body, writer, flusher, route.Model, route.ID)
 	}
 }
 

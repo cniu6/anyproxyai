@@ -155,6 +155,45 @@
             </n-space>
           </n-card>
 
+          <!-- proxy_auto 虚拟模型状态 -->
+          <n-card :bordered="false" style="margin-bottom: 24px;">
+            <n-space align="center" justify="space-between">
+              <n-space vertical :size="4">
+                <n-space align="center">
+                  <n-icon size="18" color="#18a058"><AutoIcon /></n-icon>
+                  <n-text strong style="font-size: 14px;">proxy_auto 虚拟模型</n-text>
+                  <n-tag :type="proxyAutoState.current_route_id === proxyAutoState.primary_route_id ? 'success' : 'warning'" size="small">
+                    {{ proxyAutoState.current_route_id === proxyAutoState.primary_route_id ? '默认路由' : '备用路由' }}
+                  </n-tag>
+                </n-space>
+                <n-text depth="3" style="font-size: 12px;">
+                  {{ proxyAutoState.current_route_name || proxyAutoState.current_route_model || '未初始化' }}
+                  <span v-if="proxyAutoState.failover_count > 0"> · 切换 {{ proxyAutoState.failover_count }} 次</span>
+                </n-text>
+              </n-space>
+              <n-space>
+                <n-button size="small" @click="showProxyAutoConfigModal = true">
+                  <template #icon>
+                    <n-icon><SettingsIcon /></n-icon>
+                  </template>
+                  配置
+                </n-button>
+                <n-button
+                  v-if="proxyAutoState.current_route_id !== proxyAutoState.primary_route_id"
+                  type="primary"
+                  size="small"
+                  @click="handleResetProxyAuto"
+                  :loading="resettingProxyAuto"
+                >
+                  <template #icon>
+                    <n-icon><RefreshIcon /></n-icon>
+                  </template>
+                  重置
+                </n-button>
+              </n-space>
+            </n-space>
+          </n-card>
+
           <!-- API Config -->
           <n-card :title="'🔑 ' + t('home.apiConfig')" style="margin-bottom: 24px;" :bordered="false">
             <n-grid :cols="2" :x-gap="24">
@@ -213,26 +252,6 @@
                 <n-space vertical :size="12">
                   <n-text strong style="font-size: 14px;">{{ t('home.translationInterface') }}</n-text>
                   <n-text depth="3" style="font-size: 12px;">{{ t('home.translationInterfaceDesc') }}</n-text>
-
-                  <div>
-                    <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">{{ t('home.claudeCodeInterface') }}</n-text>
-                    <n-input
-                      :value="config.localApiEndpoint + '/api/claudecode'"
-                      readonly
-                      size="large"
-                    >
-                      <template #suffix>
-                        <n-button text @click="copyToClipboard(config.localApiEndpoint + '/api/claudecode')">
-                          <template #icon>
-                            <n-icon><CopyIcon /></n-icon>
-                          </template>
-                        </n-button>
-                      </template>
-                    </n-input>
-                    <n-text depth="3" style="font-size: 11px; margin-top: 4px; display: block; color: #18a058;">
-                      📝 {{ t('home.claudeCodePath') }}：{{ config.localApiEndpoint }}/api/claudecode/v1/messages
-                    </n-text>
-                  </div>
 
                   <div>
                     <n-text depth="2" style="font-size: 13px; margin-bottom: 4px; display: block;">{{ t('home.anthropicInterface') }}</n-text>
@@ -674,6 +693,44 @@
             </n-form-item>
           </n-space>
         </n-modal>
+
+        <!-- proxy_auto 配置对话框 -->
+        <n-modal v-model:show="showProxyAutoConfigModal" preset="card" title="配置 proxy_auto 虚拟模型" style="width: 500px;">
+          <n-space vertical :size="16">
+            <n-alert type="info" :show-icon="false">
+              选择默认路由和备用路由。当默认路由故障时，会自动切换到备用路由。
+            </n-alert>
+
+            <n-form-item label="默认路由">
+              <n-select
+                v-model:value="proxyAutoConfig.primaryRouteId"
+                :options="routeOptions"
+                placeholder="选择默认路由"
+                filterable
+              />
+            </n-form-item>
+
+            <n-form-item label="备用路由">
+              <n-select
+                v-model:value="proxyAutoConfig.backupRouteId"
+                :options="routeOptions"
+                placeholder="选择备用路由"
+                filterable
+              />
+            </n-form-item>
+
+            <n-form-item>
+              <n-space>
+                <n-button type="primary" @click="saveProxyAutoConfig" :loading="savingProxyAutoConfig">
+                  保存配置
+                </n-button>
+                <n-button @click="showProxyAutoConfigModal = false">
+                  取消
+                </n-button>
+              </n-space>
+            </n-form-item>
+          </n-space>
+        </n-modal>
       </n-layout-content>
     </n-layout>
 
@@ -833,6 +890,7 @@ import {
   StatsChart as StatsChartIcon,
   Flash as FlashIcon,
   ArrowForward as ArrowForwardIcon,
+  ArrowBack as ArrowIcon,
   Copy as CopyIcon,
   Refresh as RefreshIcon,
   CreateOutline as EditIcon,
@@ -846,6 +904,10 @@ import {
   InformationCircle as InformationCircleIcon,
   Code as CodeIcon,
   Trash as TrashIcon,
+  CheckmarkCircle as CheckmarkIcon,
+  Warning as WarningIcon,
+  Repeat as AutoIcon,
+  SwapHorizontal as SwapIcon,
   Language as LanguageIcon,
   CloseOutline as ClearIcon,
 } from '@vicons/ionicons5'
@@ -853,7 +915,7 @@ import AddRouteModal from './components/AddRouteModal.vue'
 import EditRouteModal from './components/EditRouteModal.vue'
 
 // 导入 API 服务
-import { hasMultiModelRoutes, clearAllRoutes } from './services/app'
+import { hasMultiModelRoutes, clearAllRoutes, getProxyAutoState, resetProxyAuto, setProxyAutoRoutes, getModelRanking } from './services/app'
 
 // 注册 ECharts 组件
 use([
@@ -915,7 +977,8 @@ const refreshAll = async () => {
       loadConfig(),
       loadDailyStats(),
       loadHourlyStats(),
-      loadModelRanking()
+      loadModelRanking(),
+      loadProxyAutoState()
     ])
     showMessage("success", t('messages.dataRefreshed'))
   } catch (error) {
@@ -923,6 +986,61 @@ const refreshAll = async () => {
   } finally {
     refreshing.value = false
   }
+}
+
+// 加载 proxy_auto 状态
+const loadProxyAutoState = async () => {
+  try {
+    proxyAutoState.value = await getProxyAutoState()
+  } catch (error) {
+    console.error('Failed to load proxy_auto state:', error)
+  }
+}
+
+// 重置 proxy_auto 到默认路由
+const handleResetProxyAuto = async () => {
+  resettingProxyAuto.value = true
+  try {
+    await resetProxyAuto()
+    await loadProxyAutoState()
+    showMessage("success", "已重置 proxy_auto 到默认路由")
+  } catch (error) {
+    showMessage("error", "重置失败: " + error)
+  } finally {
+    resettingProxyAuto.value = false
+  }
+}
+
+// 保存 proxy_auto 配置
+const saveProxyAutoConfig = async () => {
+  // 允许选择"不选择"（值为 0），不需要验证
+
+  savingProxyAutoConfig.value = true
+  try {
+    await setProxyAutoRoutes(
+      proxyAutoConfig.value.primaryRouteId || 0,
+      proxyAutoConfig.value.backupRouteId || 0
+    )
+    await loadProxyAutoState()
+    showProxyAutoConfigModal.value = false
+    showMessage("success", "proxy_auto 配置已保存")
+  } catch (error) {
+    showMessage("error", "配置保存失败: " + error)
+  } finally {
+    savingProxyAutoConfig.value = false
+  }
+}
+
+// 格式化时间
+const formatTime = (timeStr) => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 // Settings
@@ -1228,6 +1346,40 @@ const stats = ref({
   today_tokens: 0, // 今日token使用量
   today_requests: 0, // 今日请求数
   success_rate: 0,
+})
+
+// proxy_auto 状态
+const proxyAutoState = ref({
+  primary_route_id: 0,
+  backup_route_id: 0,
+  current_route_id: 0,
+  failover_count: 0,
+  last_failover_time: '',
+  last_fail_reason: '',
+  primary_route_name: '',
+  backup_route_name: '',
+  current_route_name: '',
+  primary_route_model: '',
+  backup_route_model: '',
+  current_route_model: '',
+})
+const resettingProxyAuto = ref(false)
+
+// proxy_auto 配置
+const showProxyAutoConfigModal = ref(false)
+const savingProxyAutoConfig = ref(false)
+const proxyAutoConfig = ref({
+  primaryRouteId: null,
+  backupRouteId: null,
+})
+
+// 监听配置对话框打开，初始化当前配置
+watch(showProxyAutoConfigModal, (show) => {
+  if (show) {
+    // 使用 0 表示"不选择"
+    proxyAutoConfig.value.primaryRouteId = proxyAutoState.value.primary_route_id || 0
+    proxyAutoConfig.value.backupRouteId = proxyAutoState.value.backup_route_id || 0
+  }
 })
 
 // 热力图数据
@@ -1665,6 +1817,20 @@ const showMigrationDialog = ref(false) // 数据迁移确认对话框
 const showDeleteDialog = ref(false) // 删除路由确认对话框
 const deletingRouteList = ref([]) // 正在删除的路由列表（同名下的所有路由）
 
+// 路由选项（用于 proxy_auto 配置对话框）
+const routeOptions = computed(() => {
+  const options = [
+    { label: '不选择', value: 0 },
+    ...routes.value
+      .filter(r => r.enabled)
+      .map(r => ({
+        label: `${r.name} / ${r.model}`,
+        value: r.id
+      }))
+  ]
+  return options
+})
+
 // Computed: 先按分组组织路由，再在分组内按名称组织
 const groupedRoutes = computed(() => {
   const groups = {}
@@ -1953,13 +2119,12 @@ const loadHourlyStats = async () => {
 // 加载模型使用排行
 const loadModelRanking = async () => {
   try {
-    if (!window.go || !window.go.main || !window.go.main.App) {
-      return
-    }
-    const data = await window.go.main.App.GetModelRanking(10) // 获取前10名
+    const data = await getModelRanking(10) // 获取前10名
     modelRankingData.value = data || []
+    console.log('Model ranking loaded:', data)
   } catch (error) {
     console.error('加载模型排行失败:', error)
+    modelRankingData.value = []
   }
 }
 
@@ -2280,6 +2445,7 @@ onMounted(async () => {
   loadHourlyStats()
   loadModelRanking()
   loadAvailableRoutesForForwarding()
+  loadProxyAutoState()
 
   // 检查是否需要数据迁移
   checkDataMigration()
@@ -2288,6 +2454,7 @@ onMounted(async () => {
   setInterval(() => {
     loadStats()
     loadHourlyStats()
+    loadProxyAutoState()
   }, 30000)
 
   // 每 5 分钟刷新一次热力图和排行

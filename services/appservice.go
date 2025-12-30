@@ -429,3 +429,18 @@ func (a *AppService) HasMultiModelRoutes() (bool, error) {
 	return a.RouteService.HasMultiModelRoutes()
 }
 
+// GetProxyAutoState 获取 proxy_auto 的故障切换状态
+func (a *AppService) GetProxyAutoState() map[string]interface{} {
+	return a.RouteService.GetProxyAutoState()
+}
+
+// ResetProxyAuto 重置 proxy_auto 到默认路由
+func (a *AppService) ResetProxyAuto() error {
+	return a.RouteService.ResetProxyAuto()
+}
+
+// SetProxyAutoRoutes 设置 proxy_auto 的主路由和备用路由
+func (a *AppService) SetProxyAutoRoutes(primaryRouteID, backupRouteID int64) error {
+	return a.RouteService.SetProxyAutoRoutes(primaryRouteID, backupRouteID)
+}
+

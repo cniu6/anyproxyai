@@ -140,6 +140,51 @@ func SetupAPIRouter(cfg *config.Config, routeService *service.RouteService, prox
 		// 需要创建子路由组来处理 /api/anthropic/* 的所有路径
 		anthropic := api.Group("/anthropic")
 		{
+			// 列出可用模型 - Anthropic 兼容接口
+			anthropic.GET("/v1/models", func(c *gin.Context) {
+				// 获取模型列表
+				var models []string
+				var err error
+
+				if cfg.RedirectEnabled && cfg.RedirectKeyword != "" {
+					models, err = routeService.GetAvailableModelsWithRedirect(cfg.RedirectKeyword)
+				} else {
+					models, err = routeService.GetAvailableModels()
+				}
+
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"error": gin.H{
+							"message": err.Error(),
+							"type":    "internal_error",
+						},
+					})
+					return
+				}
+
+				// Anthropic API 格式: 返回模型数组
+				type AnthropicModel struct {
+					ID       string `json:"id"`
+					Name     string `json:"name"`
+					DisplayName string `json:"display_name"`
+					Type     string `json:"type"`
+				}
+
+				modelsData := make([]AnthropicModel, len(models))
+				for i, model := range models {
+					modelsData[i] = AnthropicModel{
+						ID:          model,
+						Name:        model,
+						DisplayName: model,
+						Type:        "model",
+					}
+				}
+
+				c.JSON(http.StatusOK, gin.H{
+					"data": modelsData,
+				})
+			})
+
 			anthropic.POST("/v1/messages", func(c *gin.Context) {
 				// 读取请求体
 				body, err := io.ReadAll(c.Request.Body)
@@ -195,80 +240,6 @@ func SetupAPIRouter(cfg *config.Config, routeService *service.RouteService, prox
 
 				// 非流式请求 - 对 Anthropic 路径，不转换响应
 				respBody, statusCode, err := proxyService.ProxyAnthropicRequest(body, headers)
-				if err != nil {
-					c.JSON(statusCode, gin.H{
-						"error": gin.H{
-							"message": err.Error(),
-							"type":    "proxy_error",
-						},
-					})
-					return
-				}
-
-				c.Data(statusCode, "application/json", respBody)
-			})
-		}
-
-		// Claude Code 专用接口 - 使用 /api/claudecode 路径
-		// 专门处理 Claude Code 的特殊格式，包括工具链、系统提示词等
-		// 始终将请求转换为 OpenAI 格式，响应转换回 Claude 格式
-		claudecode := api.Group("/claudecode")
-		{
-			claudecode.POST("/v1/messages", func(c *gin.Context) {
-				// 读取请求体
-				body, err := io.ReadAll(c.Request.Body)
-				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"error": gin.H{
-							"message": "Failed to read request body",
-							"type":    "invalid_request_error",
-						},
-					})
-					return
-				}
-
-				// 提取请求头
-				headers := make(map[string]string)
-				for key, values := range c.Request.Header {
-					if len(values) > 0 {
-						headers[key] = values[0]
-					}
-				}
-
-				// 检查是否是流式请求
-				var reqData map[string]interface{}
-				if err := json.Unmarshal(body, &reqData); err == nil {
-					if stream, ok := reqData["stream"].(bool); ok && stream {
-						// 流式请求
-						c.Header("Content-Type", "text/event-stream")
-						c.Header("Cache-Control", "no-cache")
-						c.Header("Connection", "keep-alive")
-						c.Header("X-Accel-Buffering", "no") // 禁用nginx缓冲
-
-						flusher, ok := c.Writer.(http.Flusher)
-						if !ok {
-							log.Errorf("Streaming not supported")
-							c.JSON(http.StatusInternalServerError, gin.H{
-								"error": gin.H{
-									"message": "Streaming not supported",
-									"type":    "internal_error",
-								},
-							})
-							return
-						}
-
-						// 使用 Claude Code 专用流式处理
-						// 将 Claude Code 格式转换为 OpenAI 格式，响应转换回 Claude 格式
-						err := proxyService.ProxyClaudeCodeStreamRequest(body, headers, c.Writer, flusher)
-						if err != nil {
-							log.Errorf("Claude Code stream proxy error: %v", err)
-						}
-						return
-					}
-				}
-
-				// 非流式请求
-				respBody, statusCode, err := proxyService.ProxyClaudeCodeRequest(body, headers)
 				if err != nil {
 					c.JSON(statusCode, gin.H{
 						"error": gin.H{

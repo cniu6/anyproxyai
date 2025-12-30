@@ -124,7 +124,7 @@ func main() {
 	defer db.Close()
 
 	// 创建服务
-	routeService := service.NewRouteService(db)
+	routeService := service.NewRouteService(db, cfg)
 	proxyService := service.NewProxyService(routeService, cfg)
 
 	// 自动压缩7天前的日志数据到天级别
