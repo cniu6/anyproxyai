@@ -13,7 +13,7 @@
   "info": {
     "companyName": "AnyProxyAi",
     "productName": "AnyProxyAi Manager",
-    "productVersion": "2.0.1",
+    "productVersion": "2.0.6",
     "copyright": "Copyright © 2024",
     "comments": "A modern API router for OpenAI-compatible services"
   },
