@@ -108,6 +108,8 @@
     "totalRequests": "请求总数",
     "todayRequests": "今日请求",
     "todayTokens": "今日 Token",
+    "forwardingSwitch": "模型转发",
+    "forwardingSwitchDesc": "开启后，所有已配置转发的模型将生效",
     "redirectConfig": "代理重定向配置",
     "enableRedirect": "启用重定向",
     "notConfigured": "未配置",

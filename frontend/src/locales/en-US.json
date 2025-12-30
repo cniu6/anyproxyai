@@ -108,6 +108,8 @@
     "totalRequests": "Total Requests",
     "todayRequests": "Today's Requests",
     "todayTokens": "Today's Tokens",
+    "forwardingSwitch": "Model Forwarding",
+    "forwardingSwitchDesc": "When enabled, all configured model forwarding will take effect",
     "redirectConfig": "Proxy Redirect Config",
     "enableRedirect": "Enable Redirect",
     "notConfigured": "Not Configured",

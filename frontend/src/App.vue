@@ -144,6 +144,17 @@
             </n-grid-item>
           </n-grid>
 
+          <!-- 路由转发开关 -->
+          <n-card :bordered="false" style="margin-bottom: 24px;">
+            <n-space align="center" justify="space-between">
+              <n-space vertical :size="4">
+                <n-text strong style="font-size: 16px;">{{ t('home.forwardingSwitch') }}</n-text>
+                <n-text depth="3" style="font-size: 12px;">{{ t('home.forwardingSwitchDesc') }}</n-text>
+              </n-space>
+              <n-switch v-model:value="masterForwardingEnabled" @update:value="handleToggleMasterForwarding" size="large" />
+            </n-space>
+          </n-card>
+
           <!-- API Config -->
           <n-card :title="'🔑 ' + t('home.apiConfig')" style="margin-bottom: 24px;" :bordered="false">
             <n-grid :cols="2" :x-gap="24">
@@ -273,9 +284,6 @@
           <n-card :title="'📋 ' + t('models.title')" :bordered="false">
             <template #header-extra>
               <n-space align="center">
-                <n-text depth="2" style="font-size: 13px;">{{ t('forwarding.masterSwitch') }}</n-text>
-                <n-switch v-model:value="masterForwardingEnabled" @update:value="handleToggleMasterForwarding" />
-                <n-divider vertical />
                 <n-button @click="exportRoutes" type="primary" ghost>
                   <template #icon>
                     <n-icon><ArrowForwardIcon style="transform: rotate(-90deg);" /></n-icon>
@@ -1741,10 +1749,15 @@ const modelsPageColumns = computed(() => [
     title: t('models.model'),
     key: 'model',
     width: 200,
+    ellipsis: {
+      tooltip: true
+    },
     render(row) {
-      return h(NTag, { type: 'info', size: 'small' }, {
-        default: () => row.model
-      })
+      return h('div', { style: { maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+        h(NTag, { type: 'info', size: 'small', style: { maxWidth: '100%' } }, {
+          default: () => row.model
+        })
+      )
     },
   },
   {
@@ -1777,7 +1790,7 @@ const modelsPageColumns = computed(() => [
   {
     title: t('models.actions'),
     key: 'actions',
-    width: 200,
+    width: 300,
     render(row) {
       const buttons = [
         h(
